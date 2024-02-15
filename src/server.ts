@@ -50,19 +50,29 @@ async function main() {
   }
 
   const activeRequests = new Map<http.ServerResponse, null | childProcess.ChildProcess>()
+  process.on('SIGINT', () => {
+    logger.log('Received SIGINT, shutting down')
+    for (const [res, activeRequest] of activeRequests) {
+      activeRequest?.kill()
+      res.end(JSON.stringify({ stream: 'stderr', data: 'Server shutting down' }))
+    }
+    activeRequests.clear()
+    process.exit(0)
+  })
+
   http
     .createServer((req, res) => {
       if (req.headers.authorization !== `Bearer ${config.authSecret}`) {
         res.setHeader('Content-Type', 'application/json')
         res.writeHead(401)
-        res.end(JSON.stringify({ error: 'Unauthorized' }))
+        res.end(JSON.stringify({ stream: 'stderr', data: 'Unauthorized' }))
         logger.error('Rejected request: Unauthorized')
         return
       }
       if (req.method !== 'POST') {
         res.setHeader('Content-Type', 'application/json')
         res.writeHead(405)
-        res.end(JSON.stringify({ error: 'Method Not Allowed' }))
+        res.end(JSON.stringify({ stream: 'stderr', data: 'Method Not Allowed' }))
         logger.error('Rejected request: Method not allowed')
         return
       }
@@ -113,12 +123,12 @@ async function main() {
               res.write(`${JSON.stringify({ stream: 'stderr', data: null })}\n`)
             })
             activeRequest.on('error', err => {
-              res.end(`${JSON.stringify({ stream: 'stderr', data: err.message })}\n`)
+              res.end(JSON.stringify({ stream: 'stderr', data: err.message }))
               activeRequests.delete(res)
               activeRequest = null
             })
             activeRequest.on('exit', code => {
-              res.end(`${JSON.stringify({ exitCode: code })}\n`)
+              res.end(JSON.stringify({ exitCode: code }))
               activeRequests.delete(res)
               activeRequest = null
             })
@@ -126,7 +136,7 @@ async function main() {
           err => {
             res.setHeader('Content-Type', 'application/json')
             res.writeHead(400)
-            res.end(JSON.stringify({ error: err.message }))
+            res.end(JSON.stringify({ stream: 'stderr', data: err.message }))
             logger.error('Rejected request: Bad Request')
           }
         )
