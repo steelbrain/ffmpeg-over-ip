@@ -19,6 +19,7 @@ const configSchemaServer = z
     listenPort: z.number(),
     authSecret: z.string().min(15).max(100),
     ffmpegPath: z.string(),
+    pathMappings: z.array(z.tuple([z.string(), z.string()])),
   })
   .strict()
 
@@ -97,6 +98,11 @@ export function rewriteArgsInServer(
   args: string[],
   config: z.infer<typeof configSchemaServer>
 ): string[] {
-  // TODO: Do paths rewriting
-  return args.slice()
+  return args.slice().map(item => {
+    let arg = item
+    for (const [from, to] of config.pathMappings) {
+      arg = arg.replace(from, to)
+    }
+    return arg
+  })
 }

@@ -19,6 +19,13 @@
   "authSecret": "YOUR-CLIENT-PASSWORD-HERE", // type: string
   // ^ Ideally keep this within reason (It'll be received in an HTTP header) but definitely not less than 15 characters
 
-  "ffmpegPath": "/usr/bin/ffmpeg" // type: string
+  "ffmpegPath": "/usr/bin/ffmpeg", // type: string
   // ^ For windows, you may have to use slash twice because of how strings in JSON work, so C:\Windows would be "C:\\Windows" etc
+
+  "pathMappings": [
+    ["/data/movies/", "M:\\movies\\"],
+    ["/data/tv/", "M:\\tv\\"],
+    ["/config/data/transcodes/", "N:\\transcodes\\"]
+    // ^ VERY IMPORTANT! BOTH input and output MUST have trailing slashes
+  ]
 }
