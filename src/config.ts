@@ -30,7 +30,7 @@ const configSchemaClient = z.object({
 })
 
 export async function loadConfig<T extends Runtime.Client | Runtime.Server>(
-  runtime: Runtime
+  runtime: T
 ): Promise<
   T extends Runtime.Server ? z.infer<typeof configSchemaServer> : z.infer<typeof configSchemaClient>
 > {
@@ -91,4 +91,12 @@ export async function loadConfig<T extends Runtime.Client | Runtime.Server>(
   return configContent as T extends Runtime.Server
     ? z.infer<typeof configSchemaServer>
     : z.infer<typeof configSchemaClient>
+}
+
+export function rewriteArgsInServer(
+  args: string[],
+  config: z.infer<typeof configSchemaServer>
+): string[] {
+  // TODO: Do paths rewriting
+  return args.slice()
 }

@@ -207,6 +207,11 @@ esbuild@^0.20.0:
     "@esbuild/win32-ia32" "0.20.0"
     "@esbuild/win32-x64" "0.20.0"
 
+sb-stream-promise@^2.0.0:
+  version "2.0.0"
+  resolved "https://registry.yarnpkg.com/sb-stream-promise/-/sb-stream-promise-2.0.0.tgz#f822b4d9b8e9739a2de30069e865904b1fbddcf5"
+  integrity sha512-Aw3zZ1icG9nVU5JvhjukyFftYqqVBOny9qsL6PPDwS+Qvj/78SVU+sJ+jgE7wmoCBcgkWe+3gjo6oKL8/FuOcA==
+
 strip-json-comments@^5.0.1:
   version "5.0.1"
   resolved "https://registry.yarnpkg.com/strip-json-comments/-/strip-json-comments-5.0.1.tgz#0d8b7d01b23848ed7dbdf4baaaa31a8250d8cfa0"

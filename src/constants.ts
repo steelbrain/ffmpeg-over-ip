@@ -1,6 +1,9 @@
 import os from 'node:os'
 import path from 'node:path'
 
+export const SERVER_MAX_PAYLOAD_SIZE_BYTES = 102400 // 100kb
+export const SERVER_CLUSTER_RESTART_DELAY_MS = 5000
+
 export enum Runtime {
   Server = 'server',
   Client = 'client',
