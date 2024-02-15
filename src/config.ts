@@ -18,6 +18,7 @@ const configSchemaServer = z
     listenAddress: z.string(),
     listenPort: z.number(),
     authSecret: z.string().min(15).max(100),
+    ffmpegPath: z.string(),
   })
   .strict()
 
