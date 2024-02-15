@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "description": "TODO",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "build:server": "esbuild src/server.ts --platform=node --bundle --outdir=lib",
     "watch:server": "esbuild src/server.ts --platform=node --bundle --outdir=lib --watch"
@@ -14,5 +15,9 @@
     "@types/node": "20",
     "esbuild": "^0.20.0",
     "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "strip-json-comments": "^5.0.1",
+    "zod": "^3.22.4"
   }
 }

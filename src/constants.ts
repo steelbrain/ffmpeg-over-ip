@@ -14,7 +14,7 @@ const CONFIG_FILE_NAMES_SERVER_SHORT = ['config.server.json', 'config.server.jso
 const CONFIG_FILE_NAMES_CLIENT_FULL = ['ffmpeg-over-ip.client.json', 'ffmpeg-over-ip.client.jsonc']
 const CONFIG_FILE_NAMES_CLIENT_SHORT = ['config.client.json', 'config.client.jsonc']
 
-const CONFIG_FILE_SEARCH_PATHS = [
+const CONFIG_FILE_SEARCH_PATHS: [string, string[], string[]][] = [
   ['/etc/ffmpeg-over-ip', CONFIG_FILE_NAMES_SERVER_SHORT, CONFIG_FILE_NAMES_CLIENT_SHORT],
   ['/etc', CONFIG_FILE_NAMES_SERVER_FULL, CONFIG_FILE_NAMES_CLIENT_FULL],
   [
@@ -39,12 +39,10 @@ if (process.argv.length > 1) {
   ])
 }
 
-export const CONFIG_FILE_SEARCH_PATHS_SERVER = CONFIG_FILE_SEARCH_PATHS.map(([path, server]) => [
-  path,
-  server,
-])
+export const CONFIG_FILE_SEARCH_PATHS_SERVER: [string, string[]][] = CONFIG_FILE_SEARCH_PATHS.map(
+  ([path, server]) => [path, server]
+)
 
-export const CONFIG_FILE_SEARCH_PATHS_CLIENT = CONFIG_FILE_SEARCH_PATHS.map(([path, , client]) => [
-  path,
-  client,
-])
+export const CONFIG_FILE_SEARCH_PATHS_CLIENT: [string, string[]][] = CONFIG_FILE_SEARCH_PATHS.map(
+  ([path, , client]) => [path, client]
+)
