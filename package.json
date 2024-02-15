@@ -9,6 +9,7 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@biomejs/biome": "^1.5.3",
     "typescript": "^5.3.3"
   }
 }
