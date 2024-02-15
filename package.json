@@ -4,12 +4,15 @@
   "description": "TODO",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build:server": "esbuild src/server.ts --platform=node --bundle --outdir=lib",
+    "watch:server": "esbuild src/server.ts --platform=node --bundle --outdir=lib --watch"
   },
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "@biomejs/biome": "^1.5.3",
+    "@types/node": "20",
+    "esbuild": "^0.20.0",
     "typescript": "^5.3.3"
   }
 }

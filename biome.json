@@ -10,7 +10,8 @@
 		}
 	},
 	"files": {
-		"ignoreUnknown": true
+		"ignoreUnknown": true,
+		"ignore": ["lib/"]
 	},
 	"vcs": {
 		"enabled": true,
