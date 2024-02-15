@@ -1,4 +1,4 @@
-# v2.0.0 (upcoming)
+# v2.0.0
 
 - Move dependencies to devDependencies since they are already bundled
 - Rename `pathMappings` to `rewrites`
