@@ -17,7 +17,7 @@ The server and the client are both configured using JSONC (JSON with comments) c
 of these files can be flexible. To identify which paths are being used, you can invoke either with `--debug-print-search-paths`.
 
 Template/example configuration files are provided in this repository for your convinience. Unless the server and the client
-share the same filesystem, you may have to specify `pathMappings` in the server configuration file.
+share the same filesystem, you may have to specify `rewrites` in the server configuration file.
 
 ## Usage
 
