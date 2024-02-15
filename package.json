@@ -4,6 +4,10 @@
   "description": "Connect to remote ffmpeg servers",
   "main": "index.js",
   "type": "module",
+  "bin": {
+    "ffmpeg-over-ip-server": "./lib/server.js",
+    "ffmpeg-over-ip-client": "./lib/client.js"
+  },
   "scripts": {
     "prepare": "yarn build:client && yarn build:server && yarn build:permissions",
     "build:permissions": "chmod +x lib/server.js lib/client.js",
