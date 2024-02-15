@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "build:server": "esbuild src/server.ts --platform=node --bundle --outdir=lib",
-    "watch:server": "esbuild src/server.ts --platform=node --bundle --outdir=lib --watch"
+    "watch:server": "esbuild src/server.ts --platform=node --bundle --outdir=lib --watch",
+    "build:client": "esbuild src/client.ts --platform=node --bundle --outdir=lib",
+    "watch:client": "esbuild src/client.ts --platform=node --bundle --outdir=lib --watch"
   },
   "author": "",
   "license": "MIT",
