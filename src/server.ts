@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import childProcess from 'node:child_process'
 import cluster from 'node:cluster'
 import http from 'node:http'

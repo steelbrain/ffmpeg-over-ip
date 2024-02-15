@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import http from 'node:http'
 import { loadConfig } from './config.js'
 import { CONFIG_FILE_SEARCH_PATHS_CLIENT, Runtime } from './constants.js'
