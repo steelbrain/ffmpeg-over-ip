@@ -33,15 +33,6 @@ const CONFIG_FILE_SEARCH_PATHS: [string, string[], string[]][] = [
   [process.cwd(), CONFIG_FILE_NAMES_SERVER_FULL, CONFIG_FILE_NAMES_CLIENT_FULL],
 ]
 
-if (process.argv.length > 1) {
-  const execDirectory = path.dirname(`${process.argv[1]}`)
-  CONFIG_FILE_SEARCH_PATHS.push([
-    execDirectory,
-    CONFIG_FILE_NAMES_SERVER_FULL,
-    CONFIG_FILE_NAMES_CLIENT_FULL,
-  ])
-}
-
 export const CONFIG_FILE_SEARCH_PATHS_SERVER: [string, string[]][] = CONFIG_FILE_SEARCH_PATHS.map(
   ([path, server]) => [path, server]
 )
