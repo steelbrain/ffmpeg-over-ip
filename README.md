@@ -28,6 +28,28 @@ ffmpeg executable to be, ie `docker run -v ./path/to/client.js:/usr/lib/jellyfin
 The server and the client communicate commands over HTTP, so make sure that whatever port you specify on the server is
 allowed through the firewall.
 
+Assuming you want to download these from npm, here's how you would do it
+
+On the client side:
+
+```sh
+$ npm install ffmpeg-over-ip
+$ ./node_modules/.bin/ffmpeg-over-ip-client --debug-print-search-paths # See the places where it'll look for config
+$ cp template.ffmpeg-over-ip.client.jsonc ffmpeg-over-ip.client.jsonc # Add config to one of the places
+$ nano ffmpeg-over-ip.client.jsonc # Change the stuff you want
+$ ./node_modules/.bin/ffmpeg-over-ip-client <use like ffmpeg, add ffmpeg args here>
+```
+
+On the server side:
+
+```sh
+$ npm install ffmpeg-over-ip
+$ ./node_modules/.bin/ffmpeg-over-ip-server --debug-print-search-paths # See the places where it'll look for config
+$ cp template.ffmpeg-over-ip.server.jsonc ffmpeg-over-ip.server.jsonc # Add config to one of the places
+$ nano ffmpeg-over-ip.server.jsonc # Change the stuff you want, especially the rewrites
+$ ./node_modules/.bin/ffmpeg-over-ip-server
+```
+
 ## License
 
 The contents of this project are licensed under the terms of the MIT License.
