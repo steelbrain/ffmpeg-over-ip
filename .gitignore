@@ -5,3 +5,13 @@ node_modules
 # Testing configs
 ffmpeg-over-ip.client.jsonc
 ffmpeg-over-ip.server.jsonc
+
+# Swiftlang stuff
+.DS_Store
+/.build
+/Packages
+xcuserdata/
+DerivedData/
+.swiftpm/configuration/registries.json
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.netrc
