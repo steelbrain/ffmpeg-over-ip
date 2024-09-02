@@ -1,0 +1,52 @@
+{
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "sourceLanguages": [
+        "swift"
+      ],
+      "args": [],
+      "cwd": "${workspaceFolder:ffmpeg-over-ip-swift}",
+      "name": "Debug server",
+      "program": "${workspaceFolder:ffmpeg-over-ip-swift}/.build/debug/server",
+      "preLaunchTask": "swift: Build Debug server"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "sourceLanguages": [
+        "swift"
+      ],
+      "args": [],
+      "cwd": "${workspaceFolder:ffmpeg-over-ip-swift}",
+      "name": "Release server",
+      "program": "${workspaceFolder:ffmpeg-over-ip-swift}/.build/release/server",
+      "preLaunchTask": "swift: Build Release server"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "sourceLanguages": [
+        "swift"
+      ],
+      "args": [],
+      "cwd": "${workspaceFolder:ffmpeg-over-ip-swift}",
+      "name": "Debug client",
+      "program": "${workspaceFolder:ffmpeg-over-ip-swift}/.build/debug/client",
+      "preLaunchTask": "swift: Build Debug client"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "sourceLanguages": [
+        "swift"
+      ],
+      "args": [],
+      "cwd": "${workspaceFolder:ffmpeg-over-ip-swift}",
+      "name": "Release client",
+      "program": "${workspaceFolder:ffmpeg-over-ip-swift}/.build/release/client",
+      "preLaunchTask": "swift: Build Release client"
+    }
+  ]
+}
