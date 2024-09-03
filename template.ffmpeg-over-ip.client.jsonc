@@ -1,0 +1,20 @@
+{
+  // This file is just a config template. Remember to rename this from jsonc to json and remove all the comments
+
+  "log": "stdout", // type: "stdout" | "stderr" | any string (file path) | false
+  // Other possibilities:
+  "log": "$TMP/ffmpeg-over-ip.server.log",
+  // ^ $TMP is a special variable here, only supported in "log" config where it uses the operating system
+  // temp folder
+  "log": false,
+  // ^ This turns off logging completely
+  "log": "stdout",
+  "log": "stderr",
+  "log": "/var/log/messages.log",
+
+  "connectAddress": "192.168.20.1", // type: string
+  "connectPort": 5050, // type: number
+
+  "authSecret": "YOUR-CLIENT-PASSWORD-HERE" // type: string
+  // ^ This MUST match what you have in the server
+}

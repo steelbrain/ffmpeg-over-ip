@@ -3,8 +3,8 @@ node_modules
 /lib
 
 # Testing configs
-ffmpeg-over-ip.client.jsonc
-ffmpeg-over-ip.server.jsonc
+ffmpeg-over-ip.client.json
+ffmpeg-over-ip.server.json
 
 # Swiftlang stuff
 .DS_Store
