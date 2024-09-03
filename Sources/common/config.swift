@@ -1,6 +1,6 @@
 import Foundation
 
-enum Runtime {
+public enum Runtime {
   case Server
   case Client
 }
@@ -11,7 +11,7 @@ let configServerShort: String = "config.server.json"
 let configClientLong: String = "ffmpeg-over-ip.client.json"
 let configClientShort: String = "config.client.json"
 
-func getConfigPaths(runtime: Runtime) -> [String] {
+public func getConfigPaths(runtime: Runtime) -> [String] {
   let configLong = runtime == .Server ? configServerLong : configClientLong
   let configShort = runtime == .Server ? configServerShort : configClientShort
 
@@ -41,7 +41,7 @@ func getConfigPaths(runtime: Runtime) -> [String] {
   return filePaths
 }
 
-func getActiveConfigPath(filePaths: [String]) -> String? {
+public func getActiveConfigPath(filePaths: [String]) -> String? {
   var configPath: String? = nil
   // Find the first file that exists from the paths
   for filePath in filePaths {
@@ -57,7 +57,7 @@ func getActiveConfigPath(filePaths: [String]) -> String? {
   return configPath
 }
 
-struct ServerConfig : Codable {
+public struct ServerConfig : Codable {
   var disableLog: Bool
   var logPath: String
   var listenAddress: String
@@ -67,7 +67,7 @@ struct ServerConfig : Codable {
   var rewrites: [[String]]
 }
 
-func loadServerConfig(configPath: String) throws -> ServerConfig {
+public func loadServerConfig(configPath: String) throws -> ServerConfig {
   let fileURL = URL(fileURLWithPath: configPath)
   let data = try Data(contentsOf: fileURL)
   let decoder = JSONDecoder()

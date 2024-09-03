@@ -6,7 +6,8 @@ import PackageDescription
 let package = Package(
     name: "ffmpeg-over-ip",
     targets: [
-        .executableTarget(name: "server"),
-        .executableTarget(name: "client")
+        .target(name: "common"),
+        .executableTarget(name: "server", dependencies: ["common"]),
+        .executableTarget(name: "client", dependencies: ["common"])
     ]
 )

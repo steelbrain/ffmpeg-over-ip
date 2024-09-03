@@ -1,3 +1,4 @@
+import common
 
 func main() throws -> Void {
   if CommandLine.arguments.contains("-h") || CommandLine.arguments.contains("--help") || CommandLine.arguments.contains("--debug-help") {
