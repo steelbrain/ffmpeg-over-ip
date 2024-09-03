@@ -58,13 +58,13 @@ public func getActiveConfigPath(filePaths: [String]) -> String? {
 }
 
 public struct ServerConfig : Codable {
-  var disableLog: Bool
-  var logPath: String
-  var listenAddress: String
-  var listenPort: Int
-  var authSecret: String
-  var ffmpegPath: String
-  var rewrites: [[String]]
+  public var disableLog: Bool
+  public var logPath: String
+  public var listenAddress: String
+  public var listenPort: Int
+  public var authSecret: String
+  public var ffmpegPath: String
+  public var rewrites: [[String]]
 }
 
 public func loadServerConfig(configPath: String) throws -> ServerConfig {

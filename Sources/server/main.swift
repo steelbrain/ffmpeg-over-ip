@@ -1,11 +1,15 @@
 import common
 
-func main() throws -> Void {
-  if CommandLine.arguments.contains("-h") || CommandLine.arguments.contains("--help") || CommandLine.arguments.contains("--debug-help") {
+func main() throws {
+  if CommandLine.arguments.contains("-h") || CommandLine.arguments.contains("--help")
+    || CommandLine.arguments.contains("--debug-help")
+  {
     print(HELP_TEXT_SERVER)
     return
   }
-  if CommandLine.arguments.contains("-v") || CommandLine.arguments.contains("--version") || CommandLine.arguments.contains("--debug-version") {
+  if CommandLine.arguments.contains("-v") || CommandLine.arguments.contains("--version")
+    || CommandLine.arguments.contains("--debug-version")
+  {
     print(HELP_SERVER_VERSION)
     return
   }
@@ -47,12 +51,23 @@ func main() throws -> Void {
     return
   }
 
-  print("Do the thing here")
+  let logger: Logger
+  do {
+    logger = try Logger(config.logPath, enabled: !config.disableLog)
+  } catch {
+    print("Error initializing logger:")
+    dump(error)
+    exit(1)
+  }
+
+  logger.info("Do the thing here")
+  logger.error("and here")
+  logger.info("and here")
 }
 
 do {
-    try main()
+  try main()
 } catch {
-    print("Error: \(error)")
-    exit(1)
+  print("Error: \(error)")
+  exit(1)
 }
