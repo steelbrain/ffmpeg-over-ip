@@ -1,16 +1,15 @@
 {
-  // This file is just a config template. Remember to rename this from jsonc to json and remove all the comments
+  // This file is a config template. Remember to rename this from jsonc to json and remove all the comments
 
-  "log": "stdout", // type: "stdout" | "stderr" | any string (file path) | false
+  "disableLog": false,
+  // ^ Turning this on turns off logging completely
+  "logPath": "stdout", // type: "stdout" | "stderr" | any string (file path) | false
   // Other possibilities:
-  "log": "$TMPDIR/ffmpeg-over-ip.server.log",
+  // "logPath": "$TMPDIR/ffmpeg-over-ip.server.log",
   // ^ $TMPDIR is a special variable here, only supported in "log" config where it uses the operating system
   // temp folder
-  "log": false,
-  // ^ This turns off logging completely
-  "log": "stdout",
-  "log": "stderr",
-  "log": "/var/log/messages.log",
+  // "logPath": "stderr",
+  // "logPath": "/var/log/messages.log",
 
   "listenAddress": "0.0.0.0", // type: string
   // You can specify a specific address to listen to, by default, listens on all addresses
