@@ -41,7 +41,7 @@ func getConfigPaths(runtime: Runtime) -> [String] {
   return filePaths
 }
 
-func getConfig(filePaths: [String]) -> String? {
+func getActiveConfigPath(filePaths: [String]) -> String? {
   var configPath: String? = nil
   // Find the first file that exists from the paths
   for filePath in filePaths {
@@ -54,7 +54,23 @@ func getConfig(filePaths: [String]) -> String? {
     return nil
   }
 
-  print(filePaths)
-
   return configPath
+}
+
+struct ServerConfig : Codable {
+  var disableLog: Bool
+  var logPath: String
+  var listenAddress: String
+  var listenPort: Int
+  var authSecret: String
+  var ffmpegPath: String
+  var rewrites: [[String]]
+}
+
+func loadServerConfig(configPath: String) throws -> ServerConfig {
+  let fileURL = URL(fileURLWithPath: configPath)
+  let data = try Data(contentsOf: fileURL)
+  let decoder = JSONDecoder()
+  let config =  try decoder.decode(ServerConfig.self, from: data)
+  return config
 }

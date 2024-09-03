@@ -16,19 +16,39 @@ func main() throws -> Void {
     for configPath in configPaths {
       print("  \(configPath)")
     }
-    exit(1)
+    return
   }
 
-  let config = getConfig(filePaths: configPaths)
+  let configPath = getActiveConfigPath(filePaths: configPaths)
 
-  if config == nil {
+  if configPath == nil {
     print("No config file found. Try running with --debug-print-config-paths to print search paths")
     exit(1)
   }
+
+  if CommandLine.arguments.contains("--debug-print-config") {
+    print("Active Config file: \(configPath!)")
+  }
+
+  let config: ServerConfig
+
+  do {
+    config = try loadServerConfig(configPath: configPath!)
+  } catch {
+    print("Error loading config:")
+    dump(error)
+    exit(1)
+  }
+
+  if CommandLine.arguments.contains("--debug-print-config") {
+    print("Active Config:")
+    dump(config)
+    return
+  }
+
+  print("Do the thing here")
 }
 
-
-// call main and try/catch it and log the error
 do {
     try main()
 } catch {
