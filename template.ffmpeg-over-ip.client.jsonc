@@ -3,8 +3,8 @@
 
   "log": "stdout", // type: "stdout" | "stderr" | any string (file path) | false
   // Other possibilities:
-  "log": "$TMP/ffmpeg-over-ip.server.log",
-  // ^ $TMP is a special variable here, only supported in "log" config where it uses the operating system
+  "log": "$TMPDIR/ffmpeg-over-ip.server.log",
+  // ^ $TMPDIR is a special variable here, only supported in "log" config where it uses the operating system
   // temp folder
   "log": false,
   // ^ This turns off logging completely
