@@ -5,8 +5,8 @@
   "main": "index.js",
   "type": "module",
   "bin": {
-    "ffmpeg-over-ip-server": "./lib/server.js",
-    "ffmpeg-over-ip-client": "./lib/client.js"
+    "ffmpeg-over-ip-client": "./lib/client.js",
+    "ffmpeg-over-ip-server": "./lib/server.js"
   },
   "scripts": {
     "prepare": "yarn build:client && yarn build:server && yarn build:permissions",
@@ -27,8 +27,8 @@
     "typescript": "^5.3.3",
     "zod": "^3.22.4"
   },
-  "dependencies": {},
   "repository": {
     "url": "https://github.com/steelbrain/ffmpeg-over-ip"
-  }
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
