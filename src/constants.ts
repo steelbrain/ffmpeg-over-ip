@@ -18,8 +18,8 @@ const CONFIG_FILE_NAMES_CLIENT_FULL = ['ffmpeg-over-ip.client.json', 'ffmpeg-ove
 const CONFIG_FILE_NAMES_CLIENT_SHORT = ['config.client.json', 'config.client.jsonc']
 
 const CONFIG_FILE_SEARCH_PATHS: [string, string[], string[]][] = [
-  ['/etc/ffmpeg-over-ip', CONFIG_FILE_NAMES_SERVER_SHORT, CONFIG_FILE_NAMES_CLIENT_SHORT],
-  ['/etc', CONFIG_FILE_NAMES_SERVER_FULL, CONFIG_FILE_NAMES_CLIENT_FULL],
+  [process.cwd(), CONFIG_FILE_NAMES_SERVER_FULL, CONFIG_FILE_NAMES_CLIENT_FULL],
+
   [
     path.join(os.homedir(), '.config', 'ffmpeg-over-ip'),
     CONFIG_FILE_NAMES_SERVER_SHORT,
@@ -30,7 +30,8 @@ const CONFIG_FILE_SEARCH_PATHS: [string, string[], string[]][] = [
     CONFIG_FILE_NAMES_SERVER_FULL,
     CONFIG_FILE_NAMES_CLIENT_FULL,
   ],
-  [process.cwd(), CONFIG_FILE_NAMES_SERVER_FULL, CONFIG_FILE_NAMES_CLIENT_FULL],
+  ['/etc/ffmpeg-over-ip', CONFIG_FILE_NAMES_SERVER_SHORT, CONFIG_FILE_NAMES_CLIENT_SHORT],
+  ['/etc', CONFIG_FILE_NAMES_SERVER_FULL, CONFIG_FILE_NAMES_CLIENT_FULL],
 ]
 
 export const CONFIG_FILE_SEARCH_PATHS_SERVER: [string, string[]][] = CONFIG_FILE_SEARCH_PATHS.map(
