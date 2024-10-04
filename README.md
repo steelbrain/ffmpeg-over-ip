@@ -11,6 +11,9 @@ installed and a shared filesystem (could be NFS, SMB, etc.) between the two mach
 files. You can download these from the [npm interface][1] or by `npm install ffmpeg-over-ip` and then copying
 them to the relevant places. You don't need any `node_modules` to run the server or the client.
 
+The javascript files require Node.js runtime to work. If you want standalone files that you can mount in a docker
+container, you can find these in the [Github Releases][2].
+
 ## Configuration
 
 The server and the client are both configured using JSONC (JSON with comments) configuration files. The paths
@@ -55,3 +58,5 @@ $ ./node_modules/.bin/ffmpeg-over-ip-server
 The contents of this project are licensed under the terms of the MIT License.
 
 [1]:https://www.npmjs.com/package/ffmpeg-over-ip?activeTab=code
+[2]:https://github.com/steelbrain/ffmpeg-over-ip/releases
+
