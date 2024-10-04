@@ -12,7 +12,8 @@ files. You can download these from the [npm interface][1] or by `npm install ffm
 them to the relevant places. You don't need any `node_modules` to run the server or the client.
 
 The javascript files require Node.js runtime to work. If you want standalone files that you can mount in a docker
-container, you can find these in the [Github Releases][2].
+container, you can find these in the [Github Releases][2]. On the releases page, you may have to click **"Show all
+assets"** to see the files.
 
 ## Configuration
 
