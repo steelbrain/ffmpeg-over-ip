@@ -14,7 +14,9 @@
     "build:server": "esbuild src/server.ts --platform=node --bundle --outdir=lib",
     "watch:server": "esbuild src/server.ts --platform=node --bundle --outdir=lib --watch",
     "build:client": "esbuild src/client.ts --platform=node --bundle --outdir=lib",
-    "watch:client": "esbuild src/client.ts --platform=node --bundle --outdir=lib --watch"
+    "watch:client": "esbuild src/client.ts --platform=node --bundle --outdir=lib --watch",
+    "bin:client": "pkg lib/client.js --out-path=bin/ --targets=latest-alpine-x64,latest-alpine-arm64,latest-linux-x64,latest-linux-arm64,latest-linuxstatic-x64,latest-linuxstatic-arm64,latest-macos-x64,latest-macos-arm64,latest-win-x64,latest-win-arm64",
+    "bin:server": "pkg lib/server.js --out-path=bin/ --targets=latest-alpine-x64,latest-alpine-arm64,latest-linux-x64,latest-linux-arm64,latest-linuxstatic-x64,latest-linuxstatic-arm64,latest-macos-x64,latest-macos-arm64,latest-win-x64,latest-win-arm64"
   },
   "author": "steelbrain",
   "license": "MIT",
@@ -22,6 +24,7 @@
     "@biomejs/biome": "^1.5.3",
     "@types/node": "20",
     "esbuild": "^0.20.0",
+    "pkg": "^5.8.1",
     "sb-stream-promise": "^2.0.0",
     "strip-json-comments": "^5.0.1",
     "typescript": "^5.3.3",

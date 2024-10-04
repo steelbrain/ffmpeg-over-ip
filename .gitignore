@@ -1,6 +1,7 @@
 node_modules
 .DS_Store
 /lib
+/bin
 
 # Testing configs
 ffmpeg-over-ip.client.jsonc
