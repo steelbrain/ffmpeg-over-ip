@@ -1,3 +1,9 @@
+
+# v3.0.0
+
+- Change the lookup order of the configuration files (it looks for specific paths before general paths.)
+  Use `--debug-print-search-paths` to see the paths it will look for the configuration files.
+
 # v2.0.0
 
 - Move dependencies to devDependencies since they are already bundled
