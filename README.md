@@ -26,12 +26,32 @@ share the same filesystem, you may have to specify `rewrites` in the server conf
 
 Both the server and the client files are executable, so long as there is a Node.js installation available. If you intend
 to use this in a docker container, you can directly mount the client file to where the container would expect a regular
-ffmpeg executable to be, ie `docker run -v ./path/to/client.js:/usr/lib/jellyfin-ffmpeg/ffmpeg ...`.
+ffmpeg executable to be, ie `docker run -v ./path/to/client-bin:/usr/lib/jellyfin-ffmpeg/ffmpeg ...`.
 
 The server and the client communicate commands over HTTP, so make sure that whatever port you specify on the server is
 allowed through the firewall.
 
-Assuming you want to download these from npm, here's how you would do it
+Assuming you **download one of the release files**, here's what the usage would look like
+
+On the client side
+
+```sh
+$ ./ffmpeg-over-ip-client --debug-print-search-paths # See the places where it'll look for config
+$ cp template.ffmpeg-over-ip.client.jsonc ffmpeg-over-ip.client.jsonc # Add config to one of the places
+$ nano ffmpeg-over-ip.client.jsonc # Change the stuff you want
+$ ./ffmpeg-over-ip-client <use like ffmpeg, add ffmpeg args here>
+```
+
+On the server side
+
+```sh
+$ ./ffmpeg-over-ip-server --debug-print-search-paths # See the places where it'll look for config
+$ cp template.ffmpeg-over-ip.server.jsonc ffmpeg-over-ip.server.jsonc # Add config to one of the places
+$ nano ffmpeg-over-ip.server.jsonc # Change the stuff you want, especially the rewrites
+$ ./ffmpeg-over-ip-server
+```
+
+Assuming you want to **download these from npm**, here's how you would do it
 
 On the client side:
 
