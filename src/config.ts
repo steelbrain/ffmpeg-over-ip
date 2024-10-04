@@ -69,8 +69,8 @@ export async function loadConfig<T extends Runtime.Client | Runtime.Server>(
     let parsed: unknown
     try {
       parsed = JSON.parse(stripJsonComments(textContents))
-    } catch (err) {
-      throw new Error('Malformed JSON in config file')
+    } catch (_) {
+      throw new Error(`Malformed JSON in config file at ${selectedConfigFilePath}`)
     }
     if (
       parsed != null &&
