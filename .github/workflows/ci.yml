@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '>=1.18'
+          check-latest: true
+
+      - name: Format Check
+        id: fmt-check
+        run: |
+          go fmt ./...
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Code is not properly formatted. Run 'go fmt ./...' locally and commit the changes."
+            git status --porcelain
+            exit 1
+          fi
+
+      - name: Build
+        run: make build
+
+      - name: Test
+        run: make test
+
+      - name: Build for all platforms
+        run: make cross-platform
+
+      - name: Upload cross-platform binaries as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-over-ip-cross-platform
+          path: release/
+          if-no-files-found: error
