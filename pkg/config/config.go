@@ -22,6 +22,7 @@ type ServerConfig struct {
 	AuthSecret string      `json:"authSecret"`
 	FFmpegPath string      `json:"ffmpegPath"`
 	Rewrites   [][2]string `json:"rewrites"`
+	Debug      bool        `json:"debug"`
 }
 
 // LogConfig returns a string representing where to log or empty string for no logging

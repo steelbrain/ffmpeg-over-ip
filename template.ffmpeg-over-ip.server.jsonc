@@ -22,6 +22,10 @@
   "ffmpegPath": "/usr/bin/ffmpeg", // type: string
   // ^ For windows, you may have to use slash twice because of how strings in JSON work, so C:\Windows would be "C:\\Windows" etc
 
+  "debug": false, // type: boolean
+  // ^ When set to true, command stdout/stderr will be logged to the server logs
+  // This is useful for troubleshooting ffmpeg commands
+
   "rewrites": [
     ["/data/movies/", "M:\\movies\\"],
     ["/data/tv/", "M:\\tv\\"],
