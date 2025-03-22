@@ -10,11 +10,11 @@ ffmpeg-over-ip uses a shared filesystem (this could be a Docker mount, NFS or SM
 
 ## Key Features
 
-- **Real-time Streaming**: Output(s) from ffmpeg processes are streamed in real-time to the client through filesystem
-- **Robust Cancellation**: Client can cancel running processes, and server properly cleans up resources
+- **Authentication**: Client & Server communicate through signed messages
 - **Flexible Connectivity**: Supports both TCP and Unix socket connections
-- **Path and Command Rewrites**: Configure path or codec mappings to handle differences between client and server
-- **Authentication**: Client & Server communicate through HMAC signed messages
+- **Real-time Streaming**: Output(s) are streamed in real-time to the client through filesystem
+- **Robust Cancellation**: Client can cancel running processes, and server properly cleans up resources
+- **Path and Command Rewrites**: Rewrite paths/codecs to handle differences between client and server
 
 ## Installation
 
