@@ -10,7 +10,7 @@
   },
   "homepage": "https://ffmpeg-over-ip.com/",
   "scripts": {
-    "prepare": "yarn build:client && yarn build:server && yarn build:permissions",
+    "prepare": "npm run build:client && npm run build:server && npm run build:permissions",
     "build:permissions": "chmod +x lib/server.js lib/client.js",
     "build:server": "esbuild src/server.ts --platform=node --bundle --outdir=lib",
     "watch:server": "esbuild src/server.ts --platform=node --bundle --outdir=lib --watch",
@@ -33,6 +33,5 @@
   },
   "repository": {
     "url": "https://github.com/steelbrain/ffmpeg-over-ip"
-  },
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+  }
 }
