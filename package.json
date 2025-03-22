@@ -8,6 +8,7 @@
     "ffmpeg-over-ip-client": "./lib/client.js",
     "ffmpeg-over-ip-server": "./lib/server.js"
   },
+  "homepage": "https://ffmpeg-over-ip.com/",
   "scripts": {
     "prepare": "yarn build:client && yarn build:server && yarn build:permissions",
     "build:permissions": "chmod +x lib/server.js lib/client.js",
