@@ -15,16 +15,6 @@ export default function Home() {
           <p className="text-xl">
             GPU accelerated ffmpeg from containers and VMs without GPU passthrough
           </p>
-
-          <div className="bg-gray-800 p-6 rounded-lg shadow-xl text-left">
-            <h2 className="text-xl font-semibold mb-4 text-emerald-300">How it works</h2>
-            <p className="mb-4">
-              ffmpeg-over-ip is a client-server combo that allows you to transcode videos on a machine with access to a GPU from a container or a VM without having to passthrough a GPU. This means you can run GPU accelerated ffmpeg from a docker container and use the GPU from the hypervisor or your Gaming PC running Windows.
-            </p>
-            <p>
-              ffmpeg-over-ip uses a shared filesystem (this could be a Docker mount, NFS or SMB) to transfer video data and a lightweight communication protocol to coordinate the commands. This means that you do not need an ssh server running on the GPU-host (making Windows support easier/simpler), and that the client can stream the output(s) as they are processed. This allows ffmpeg-over-ip to be used in Plex or Emby media servers for just-in-time transcoding.
-            </p>
-          </div>
         </div>
 
         <div className="mt-10">
