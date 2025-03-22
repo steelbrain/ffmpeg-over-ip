@@ -257,10 +257,10 @@ func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConf
 	go handleStdin(cmdCtx, conn, stdin, cmdCancel)
 
 	// Forward stdout to client
-	go forwardOutput(cmdCtx, stdout, conn, protocol.MessageTypeStdout)
+	go forwardOutput(cmdCtx, stdout, conn, protocol.MessageTypeStdout, cfg.Debug, "stdout")
 
 	// Forward stderr to client
-	go forwardOutput(cmdCtx, stderr, conn, protocol.MessageTypeStderr)
+	go forwardOutput(cmdCtx, stderr, conn, protocol.MessageTypeStderr, cfg.Debug, "stderr")
 
 	// Wait for the command to finish
 	err = cmd.Wait()
@@ -423,7 +423,8 @@ func handleStdin(ctx context.Context, conn net.Conn, stdin io.WriteCloser, cmdCa
 
 // forwardOutput streams data from a reader (stdout/stderr) to the client connection
 // It handles context cancellation and properly reports any errors that occur during reading or writing
-func forwardOutput(ctx context.Context, src io.Reader, conn net.Conn, msgType uint8) {
+// When debug is enabled, it also logs the output to the server logs
+func forwardOutput(ctx context.Context, src io.Reader, conn net.Conn, msgType uint8, debug bool, streamType string) {
 	// Validate parameters
 	if src == nil || conn == nil {
 		log.Printf("Error: nil source reader or connection in forwardOutput")
@@ -450,8 +451,13 @@ func forwardOutput(ctx context.Context, src io.Reader, conn net.Conn, msgType ui
 				data := make([]byte, n)
 				copy(data, buffer[:n])
 
+				// Log the output to server logs if debug is enabled
+				if debug {
+					log.Printf("[DEBUG] [%s] %s", streamType, string(data))
+				}
+
 				if err := protocol.WriteMessage(conn, msgType, data); err != nil {
-					log.Printf("Error writing output message: %v", err)
+					log.Printf("Error writing %s output message: %v", streamType, err)
 					return
 				}
 			}
@@ -459,7 +465,7 @@ func forwardOutput(ctx context.Context, src io.Reader, conn net.Conn, msgType ui
 			// Check for errors or EOF
 			if err != nil {
 				if err != io.EOF {
-					log.Printf("Error reading output: %v", err)
+					log.Printf("Error reading %s: %v", streamType, err)
 				}
 				return
 			}
