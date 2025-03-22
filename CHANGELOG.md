@@ -1,3 +1,6 @@
+# v3.0.1
+
+- Meta update adding homepage to manifest
 
 # v3.0.0
 
