@@ -457,7 +457,7 @@ func forwardOutput(ctx context.Context, src io.Reader, conn net.Conn, msgType ui
 				}
 
 				if err := protocol.WriteMessage(conn, msgType, data); err != nil {
-					log.Printf("Error writing output message: %v", err)
+					log.Printf("Error writing %s output message: %v", streamType, err)
 					return
 				}
 			}
@@ -465,7 +465,7 @@ func forwardOutput(ctx context.Context, src io.Reader, conn net.Conn, msgType ui
 			// Check for errors or EOF
 			if err != nil {
 				if err != io.EOF {
-					log.Printf("Error reading output: %v", err)
+					log.Printf("Error reading %s: %v", streamType, err)
 				}
 				return
 			}
