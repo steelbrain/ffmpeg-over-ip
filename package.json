@@ -1,6 +1,6 @@
 {
   "name": "ffmpeg-over-ip",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Connect to remote ffmpeg servers",
   "main": "index.js",
   "type": "module",
