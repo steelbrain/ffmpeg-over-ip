@@ -192,8 +192,6 @@ func loadServerConfigFromPath(path string) (*ServerConfig, error) {
 	return &config, nil
 }
 
-
-
 // LoadConfigFromPath loads client or server config from a specific path
 // It returns either a ClientConfig or ServerConfig depending on isClient parameter
 func LoadConfigFromPath(path string, isClient bool) (interface{}, error) {

@@ -13,11 +13,11 @@ import (
 // - Escape sequences in strings
 func StripJSONCComments(content []byte) []byte {
 	var result bytes.Buffer
-	inString := false       // Whether we're inside a string
-	escaped := false        // Whether the current character is escaped
+	inString := false            // Whether we're inside a string
+	escaped := false             // Whether the current character is escaped
 	inSingleLineComment := false // Whether we're in a // comment
 	inMultiLineComment := false  // Whether we're in a /* */ comment
-	inMultiLineCommentDepth := 0  // For nested /* */ patterns within comments
+	inMultiLineCommentDepth := 0 // For nested /* */ patterns within comments
 
 	for i := 0; i < len(content); i++ {
 		c := content[i]
@@ -38,7 +38,7 @@ func StripJSONCComments(content []byte) []byte {
 				i++ // Skip the next character (*)
 				continue
 			}
-			
+
 			// Check for comment end marker
 			if c == '*' && i+1 < len(content) && content[i+1] == '/' {
 				if inMultiLineCommentDepth > 0 {
