@@ -1,0 +1,33 @@
+{
+  // This is a "jsonc" file and therefore supports comments in addition to standard JSON syntax
+
+  // LOG CONFIGURATION OPTIONS (use only one):
+  "log": "stdout", // type: "stdout" | "stderr" | any string (file path) | false
+  // Other possibilities (EXAMPLES - choose only one):
+  // "log": "$TMPDIR/ffmpeg-over-ip.server.log",  // Uses the operating system temp folder
+  // "log": false,  // Turns off logging completely
+  // "log": "stderr",  // Log to stderr
+  // "log": "/var/log/messages.log",  // Log to a specific file
+
+  "address": "0.0.0.0:5050", // type: string, format: "host:port" or "/path/to/unix.sock"
+  // You can use either "host:port" format for TCP connections or a path to a Unix socket
+  // Examples:
+  // "address": "127.0.0.1:5050"    // Listen only on localhost
+  // "address": "0.0.0.0:5050"     // Listen on all interfaces (default)
+  // "address": "/tmp/ffmpeg-over-ip.sock"  // Use Unix socket
+
+  "authSecret": "YOUR-CLIENT-PASSWORD-HERE", // type: string
+  // ^ Ideally more than 15 characters long
+
+  "ffmpegPath": "/usr/bin/ffmpeg", // type: string
+  // ^ For windows, you may have to use slash twice because of how strings in JSON work, so C:\Windows would be "C:\\Windows" etc
+
+  "rewrites": [
+    ["/data/movies/", "M:\\movies\\"],
+    ["/data/tv/", "M:\\tv\\"],
+    ["/config/data/transcodes/", "N:\\transcodes\\"],
+    // ^ VERY IMPORTANT! For path rewrites BOTH input and output MUST have trailing slashes
+    // You can also use rewrites to map codecs, ie:
+    ["libfdk_aac", "aac"]
+  ]
+}

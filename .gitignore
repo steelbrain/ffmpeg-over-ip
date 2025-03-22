@@ -1,0 +1,8 @@
+node_modules
+.DS_Store
+/bin
+/release
+
+# Testing configs
+ffmpeg-over-ip.client.jsonc
+ffmpeg-over-ip.server.jsonc

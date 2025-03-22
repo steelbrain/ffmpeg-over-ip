@@ -1,0 +1,21 @@
+{
+  // This is a "jsonc" file and therefore supports comments in addition to standard JSON syntax
+
+  // LOG CONFIGURATION OPTIONS (use only one):
+  "log": "stdout", // type: "stdout" | "stderr" | any string (file path) | false
+  // Other possibilities (EXAMPLES - choose only one):
+  // "log": "$TMPDIR/ffmpeg-over-ip.client.log",  // Uses the operating system temp folder
+  // "log": false,  // Turns off logging completely
+  // "log": "stderr",  // Log to stderr
+  // "log": "/var/log/messages.log",  // Log to a specific file
+
+  "address": "127.0.0.1:5050", // type: string, format: "host:port" or "/path/to/unix.sock"
+  // You can use either "host:port" format for TCP connections or a path to a Unix socket
+  // Examples:
+  // "address": "192.168.1.20:5050"    // Connect to local network server
+  // "address": "server.example.com:5050"    // Connect to a remote server
+  // "address": "/tmp/ffmpeg-over-ip.sock"    // Connect using Unix socket
+
+  "authSecret": "YOUR-CLIENT-PASSWORD-HERE" // type: string
+  // ^ This MUST match what you have in the server
+}
