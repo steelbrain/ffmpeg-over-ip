@@ -48,32 +48,6 @@ The built binaries will be placed in the `bin` directory as `ffmpeg-over-ip-clie
 
 Both the client and server are configured using JSONC (JSON with comments) configuration files. Example configuration files for both the server and client are included in the repository as `template.ffmpeg-over-ip-client.jsonc` and `template.ffmpeg-over-ip-server.jsonc`.
 
-### Finding Configuration Paths
-
-To see where the application looks for configuration files:
-
-```bash
-# For the client
-./bin/ffmpeg-over-ip-client --debug-print-search-paths
-
-# For the server
-./bin/ffmpeg-over-ip-server --debug-print-search-paths
-```
-
-### Environment Variable Configuration
-
-In addition to configuration files, you can also specify the configuration file path via environment variables:
-
-```bash
-# For the client
-export FFMPEG_OVER_IP_CLIENT_CONFIG="/path/to/custom-client-config.jsonc"
-
-# For the server
-export FFMPEG_OVER_IP_SERVER_CONFIG="/path/to/custom-server-config.jsonc"
-```
-
-This is particularly useful in containerized environments or when you want to easily switch between different configuration files without modifying command-line arguments.
-
 ### Client Configuration
 
 Create a client configuration file in one of the default search paths, or specify it with `--config`:
@@ -123,6 +97,32 @@ Create a server configuration file similarly:
 }
 ```
 
+### Configuration lookup
+
+For Docker use cases, **please skip this part** and go to Docker Integration below, otherwise keep reading.
+
+To see where the application looks for configuration files:
+
+```bash
+# For the client
+./bin/ffmpeg-over-ip-client --debug-print-search-paths
+
+# For the server
+./bin/ffmpeg-over-ip-server --debug-print-search-paths
+```
+
+In addition to configuration files, you can also specify the configuration file path via environment variables.
+This is useful if you'd like to be able to switch between multiple configurations within the same install.
+Here's the recognized environment variables:
+
+```bash
+# For the client
+export FFMPEG_OVER_IP_CLIENT_CONFIG="/path/to/custom-client-config.jsonc"
+
+# For the server
+export FFMPEG_OVER_IP_SERVER_CONFIG="/path/to/custom-server-config.jsonc"
+```
+
 ## Usage
 
 ### Starting the Server
@@ -155,7 +155,11 @@ FFMPEG_OVER_IP_CLIENT_CONFIG="/path/to/your/client-config.jsonc" ./bin/ffmpeg-ov
 
 ## Docker Integration
 
-You can use ffmpeg-over-ip in Docker environments by mounting the client binary:
+You can use ffmpeg-over-ip in Docker environments by mounting the binary and configuration as volumes.
+Using ffmpeg-over-ip with containers allows containers to use ffmpeg remotely without needing GPU
+passthrough or other special setup.
+
+For client, you can do:
 
 ```bash
 docker run -v ./path/to/ffmpeg-over-ip-client:/usr/bin/ffmpeg \
@@ -163,7 +167,26 @@ docker run -v ./path/to/ffmpeg-over-ip-client:/usr/bin/ffmpeg \
            your-image
 ```
 
-This allows containers to use ffmpeg remotely without needing GPU passthrough or other special setup.
+For server, you can do:
+
+```bash
+docker run -v ./path/to/ffmpeg-over-ip-server:/usr/bin/ffmpeg \
+           -v ./path/to/config:/etc/ffmpeg-over-ip.server.jsonc \
+           your-image
+```
+
+For server specifically, since it is more useful when has access to a GPU, nvidia-container-runtime is preferred
+so you must add `--runtime=nvidia` to the above command.
+
+### Debugging with Docker
+
+For a working docker setup, you may need to configure rewrites for the paths between the client and server, as well
+as rewrites for the codecs. To see what ffmpeg commands are being executed and what they are being rewritten to, please
+enable the `log` option in both client and server, you can set the server log to `stdout` for easier debugging, and for the client
+you may set it to `/tmp/ffmpeg-over-ip.client.log` and then tail it from the docker container.
+
+Additionally, you can turn on the `debug` flag in the server configuration to see the output of the commands being executed, to catch
+any issues/bugs as they occur.
 
 ## Development
 
