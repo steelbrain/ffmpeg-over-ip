@@ -2,7 +2,7 @@
 
 [ffmpeg-over-ip][] is a client-server combo that allows you to transcode videos on a machine with access to a GPU from a container or a VM without having to passthrough a GPU. This means you can run GPU accelerated ffmpeg from a docker container and use the GPU from the hypervisor **or your Gaming PC running Windows**.
 
-If you're looking for **v3** (pre Golang rewrite), please check out [v3 branch](https://github.com/steelbrain/ffmpeg-over-ip/tree/v3)
+If you're looking for **v3** (pre Golang rewrite), please check out [v3 branch](https://github.com/steelbrain/ffmpeg-over-ip/tree/v3), otherwise please look for the v4 alpha binaries in the releases section.
 
 ## How it works
 
