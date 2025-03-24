@@ -175,8 +175,13 @@ docker run -v ./path/to/ffmpeg-over-ip-server:/usr/bin/ffmpeg \
            your-image
 ```
 
-For server specifically, since it is more useful when has access to a GPU, nvidia-container-runtime is preferred
-so you must add `--runtime=nvidia` to the above command.
+### Recommendations for Docker
+
+- If you are running the server on the same machine as the client, it may be a good idea to use a unix socket for the `address`
+  and then forward that over a volume, otherwise you'll have to add an extra host like `host.docker.internal:host-gateway` in your
+  Docker config.
+- If you want to run the server in a Docker container as well, it may be a good idea to use a GPU accelerated docker runtime
+  like `nvidia-container-runtime`, which can be used by adding `--runtime=nvidia` to the docker run command.
 
 ### Debugging with Docker
 
