@@ -1,4 +1,4 @@
-.PHONY: build clean install test cross-platform release
+.PHONY: build clean install test cross-platform release protobuf
 
 # Binary names
 CLIENT_BIN := ffmpeg-over-ip-client
@@ -18,7 +18,7 @@ PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 win
 all: build
 
 # Build both client and server
-build: $(CLIENT_PATH) $(SERVER_PATH)
+build: protobuf $(CLIENT_PATH) $(SERVER_PATH)
 
 # Build client binary
 $(CLIENT_PATH):
@@ -81,3 +81,7 @@ release: cross-platform
 		tar -czf release/archives/ffmpeg-over-ip-$$os-$$arch.tar.gz -C release/$$os-$$arch .; \
 	done
 	@echo "Release archives created in release/archives/ directory"
+
+# Generate protobuf Go files
+protobuf:
+	protoc --go_out=. --go_opt=paths=source_relative pkg/protocol/protocol.proto

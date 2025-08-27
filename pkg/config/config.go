@@ -17,12 +17,12 @@ type ClientConfig struct {
 
 // ServerConfig represents the server configuration
 type ServerConfig struct {
-	Log        interface{} `json:"log"`
-	Address    string      `json:"address"`
-	AuthSecret string      `json:"authSecret"`
-	FFmpegPath string      `json:"ffmpegPath"`
-	Rewrites   [][2]string `json:"rewrites"`
-	Debug      bool        `json:"debug"`
+	Log        interface{}       `json:"log"`
+	Address    string            `json:"address"`
+	AuthSecret string            `json:"authSecret"`
+	Tools      map[string]string `json:"tools"`
+	Rewrites   [][2]string       `json:"rewrites"`
+	Debug      bool              `json:"debug"`
 }
 
 // LogConfig returns a string representing where to log or empty string for no logging

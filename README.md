@@ -10,6 +10,7 @@ ffmpeg-over-ip uses a shared filesystem (this could be a Docker mount, NFS or SM
 
 ## Key Features
 
+- **Multi-Tool Support**: Supports ffmpeg, ffprobe, and other configurable tools
 - **Authentication**: Client & Server communicate through signed messages
 - **Flexible Connectivity**: Supports both TCP and Unix socket connections
 - **Real-time Streaming**: Output(s) are streamed in real-time to the client through filesystem
@@ -31,12 +32,20 @@ Download the latest binaries for your platform from the [GitHub Releases](https:
 If you prefer to build from source:
 
 1. Make sure you have Go 1.18+ installed
-2. Clone the repository: `git clone https://github.com/steelbrain/ffmpeg-over-ip.git`
-3. Use the included Makefile:
+2. Install Protocol Buffers compiler:
+   - **macOS**: `brew install protobuf`
+   - **Linux**: `apt install protobuf-compiler` or `yum install protobuf-compiler`
+   - **Windows**: Download from [Protocol Buffers releases](https://github.com/protocolbuffers/protobuf/releases)
+3. Install Go protobuf plugin: `go install google.golang.org/protobuf/cmd/protoc-gen-go@latest`
+4. Clone the repository: `git clone https://github.com/steelbrain/ffmpeg-over-ip.git`
+5. Use the included Makefile:
 
 ```bash
 # Build both client and server binaries
 make build
+
+# Generate protobuf files manually (included in build)
+make protobuf
 
 # Install to your Go path (optional)
 make install
@@ -80,10 +89,13 @@ Create a server configuration file similarly:
   // Authentication secret (must match client config)
   "authSecret": "your-secret-here",
 
-  // Path to ffmpeg binary on the server
-  "ffmpegPath": "/usr/bin/ffmpeg",
+  // Tools available on the server - maps tool names to binary paths
+  "tools": {
+    "ffmpeg": "/usr/bin/ffmpeg",   // Path to ffmpeg binary
+    "ffprobe": "/usr/bin/ffprobe"  // Path to ffprobe binary
+  },
 
-  // Path rewrites to map client paths to server paths
+  // Path rewrites to map client paths to server paths (applies to all tools)
   "rewrites": [
     // File path rewrites - maps client paths to server paths
     ["/client/path", "/server/path"],
@@ -140,10 +152,10 @@ FFMPEG_OVER_IP_SERVER_CONFIG="/path/to/your/server-config.jsonc" ./bin/ffmpeg-ov
 
 ### Using the Client
 
-Use the client exactly as you would use ffmpeg, with the same arguments:
+Use the client exactly as you would use ffmpeg or ffprobe, with the same arguments:
 
 ```bash
-# Uses default configuration paths
+# Uses default configuration paths (defaults to ffmpeg tool)
 ./bin/ffmpeg-over-ip-client -i input.mp4 -c:v libx264 -preset medium output.mp4
 
 # Uses the specified configuration path
@@ -151,23 +163,38 @@ Use the client exactly as you would use ffmpeg, with the same arguments:
 
 # Uses configuration path from environment variable
 FFMPEG_OVER_IP_CLIENT_CONFIG="/path/to/your/client-config.jsonc" ./bin/ffmpeg-over-ip-client -i input.mp4 output.mp4
+
+# Use ffprobe with --tool flag
+./bin/ffmpeg-over-ip-client --tool ffprobe -i input.mp4 -show_format
+
+# Tool detection via binary name (using symlinks)
+ln -s ffmpeg-over-ip-client ffprobe
+./ffprobe -i input.mp4 -show_format
+
+# Tool detection via binary suffix
+ln -s ffmpeg-over-ip-client ffmpeg-over-ip-client-ffprobe
+./ffmpeg-over-ip-client-ffprobe -i input.mp4 -show_format
 ```
 
 ## Docker Integration
 
 You can use ffmpeg-over-ip in Docker environments by mounting the binary and configuration as volumes.
-Using ffmpeg-over-ip with containers allows containers to use ffmpeg remotely without needing GPU
+Using ffmpeg-over-ip with containers allows containers to use ffmpeg and ffprobe remotely without needing GPU
 passthrough or other special setup.
 
-For client, you can do:
+### Client Docker Usage
+
+For applications expecting both ffmpeg and ffprobe, mount the same client binary to multiple locations:
 
 ```bash
+# Mount client binary as both ffmpeg and ffprobe
 docker run -v ./path/to/ffmpeg-over-ip-client:/usr/bin/ffmpeg \
+           -v ./path/to/ffmpeg-over-ip-client:/usr/bin/ffprobe \
            -v ./path/to/config:/etc/ffmpeg-over-ip.client.jsonc \
            your-image
 ```
 
-For server, you can do:
+### Server Docker Usage
 
 ```bash
 docker run -v ./path/to/ffmpeg-over-ip-server:/usr/bin/ffmpeg \

@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -22,6 +23,7 @@ import (
 var (
 	_ = flag.String("config", "", "Path to config file")
 	_ = flag.Bool("debug-print-search-paths", false, "Print config search paths and exit")
+	_ = flag.String("tool", "", "Override tool name (e.g., ffmpeg, ffprobe)")
 )
 
 func main() {
@@ -31,6 +33,7 @@ func main() {
 	// Manually extract our flags
 	var configPathValue string
 	var debugSearchPathsValue bool
+	var toolOverride string
 	ffmpegArgs := []string{}
 
 	for i := 0; i < len(originalArgs); i++ {
@@ -43,6 +46,13 @@ func main() {
 			}
 		} else if strings.HasPrefix(arg, "--config=") {
 			configPathValue = strings.TrimPrefix(arg, "--config=")
+		} else if arg == "--tool" || arg == "-tool" {
+			if i+1 < len(originalArgs) {
+				toolOverride = originalArgs[i+1]
+				i++ // Skip the next argument as it's the value
+			}
+		} else if strings.HasPrefix(arg, "--tool=") {
+			toolOverride = strings.TrimPrefix(arg, "--tool=")
 		} else if arg == "--debug-print-search-paths" || arg == "-debug-print-search-paths" {
 			debugSearchPathsValue = true
 		} else {
@@ -63,13 +73,17 @@ func main() {
 		return
 	}
 
-	// Check if we have ffmpeg args
+	// Detect tool name
+	toolName := detectToolName(toolOverride)
+
+	// Check if we have args for the tool
 	if len(ffmpegArgs) == 0 {
-		fmt.Println("Usage: ffmpeg-over-ip-client [options] [ffmpeg args...]")
+		fmt.Printf("Usage: %s [options] [%s args...]\n", filepath.Base(os.Args[0]), toolName)
 		fmt.Println("Options:")
 		fmt.Println("  --config <path>                Path to config file")
+		fmt.Println("  --tool <name>                  Override tool name (e.g., ffmpeg, ffprobe)")
 		fmt.Println("  --debug-print-search-paths    Print config search paths and exit")
-		fmt.Println("\nAll arguments after options are passed to ffmpeg.")
+		fmt.Printf("\nAll arguments after options are passed to %s.\n", toolName)
 		return
 	}
 
@@ -95,6 +109,7 @@ func main() {
 	}
 
 	log.Printf("Loaded config from: %s", configPath)
+	log.Printf("Detected tool: %s", toolName)
 
 	// Parse the address
 	connInfo, err := protocol.ParseAddress(cfg.Address)
@@ -135,10 +150,10 @@ func main() {
 		}()
 	}()
 
-	log.Printf("Connected to server, sending command: %v", ffmpegArgs)
+	log.Printf("Connected to server, sending %s command: %v", toolName, ffmpegArgs)
 
 	// Send the command
-	if err := protocol.WriteCommandMessage(conn, cfg.AuthSecret, ffmpegArgs); err != nil {
+	if err := protocol.WriteCommandMessage(conn, cfg.AuthSecret, toolName, ffmpegArgs); err != nil {
 		log.Fatalf("Failed to send command: %v", err)
 	}
 
@@ -310,4 +325,32 @@ func processServerMessages(ctx context.Context, conn net.Conn) (int, error) {
 			}
 		}
 	}
+}
+
+// detectToolName determines which tool to use based on --tool flag or binary name
+func detectToolName(toolOverride string) string {
+	// 1. If --tool flag provided, use it (highest priority)
+	if toolOverride != "" {
+		return toolOverride
+	}
+
+	// 2. Detect from binary name
+	binaryName := filepath.Base(os.Args[0])
+	
+	// If binary name is exactly "ffmpeg-over-ip-client", default to "ffmpeg"
+	if binaryName == "ffmpeg-over-ip-client" {
+		return "ffmpeg"
+	}
+	
+	// If binary name starts with "ffmpeg-over-ip-client-", extract the suffix
+	if strings.HasPrefix(binaryName, "ffmpeg-over-ip-client-") {
+		toolName := strings.TrimPrefix(binaryName, "ffmpeg-over-ip-client-")
+		if toolName != "" {
+			return toolName
+		}
+	}
+	
+	// If binary name is something else entirely, use it as the tool name
+	// This handles cases like symlinks: ffmpeg, ffprobe, etc.
+	return binaryName
 }

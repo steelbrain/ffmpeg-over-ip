@@ -47,8 +47,18 @@ func main() {
 	}
 	fmt.Printf("Loaded config from: %s\n", configPath)
 
+	// Validate tools configuration
+	if len(cfg.Tools) == 0 {
+		log.Fatalf("No tools configured in server config - at least one tool must be specified in 'tools' map")
+	}
+
 	// Setup logger
-	logDest, err := common.SetupLogger(cfg.Log.(string))
+	logStr, err := config.ParseLogConfig(cfg.Log)
+	if err != nil {
+		log.Fatalf("Failed to parse log config: %v", err)
+	}
+
+	logDest, err := common.SetupLogger(logStr)
 	if err != nil {
 		log.Fatalf("Failed to setup logger: %v", err)
 	}
@@ -159,7 +169,7 @@ func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConf
 	}
 
 	// Parse the command message
-	version, signature, args, err := protocol.ParseCommandMessage(msg.Payload)
+	version, signature, toolName, args, err := protocol.ParseCommandMessage(msg.Payload)
 	if err != nil {
 		log.Printf("Error parsing command message: %v", err)
 		protocol.WriteMessage(conn, protocol.MessageTypeError, []byte(fmt.Sprintf("Invalid command message: %v", err)))
@@ -174,25 +184,36 @@ func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConf
 	}
 
 	// Verify signature
-	if !protocol.VerifySignature(cfg.AuthSecret, signature, args) {
+	if !protocol.VerifyCommandSignature(cfg.AuthSecret, signature, toolName, args) {
 		log.Printf("Invalid signature from %s", remoteAddr)
 		protocol.WriteMessage(conn, protocol.MessageTypeError, []byte("Authentication failed: invalid signature"))
+		return
+	}
+
+	// Validate tool name
+	toolPath, exists := cfg.Tools[toolName]
+	if !exists {
+		availableTools := make([]string, 0, len(cfg.Tools))
+		for tool := range cfg.Tools {
+			availableTools = append(availableTools, tool)
+		}
+		log.Printf("Unknown tool requested: %s. Available tools: %v", toolName, availableTools)
+		protocol.WriteMessage(conn, protocol.MessageTypeError, []byte(fmt.Sprintf("Unknown tool: %s. Available tools: %v", toolName, availableTools)))
 		return
 	}
 
 	// Apply path rewrites
 	rewrittenArgs := common.RewriteCommandArgs(args, cfg.Rewrites)
 
-	// Ensure ffmpeg path exists
-	ffmpegPath := cfg.FFmpegPath
-	if _, err := os.Stat(ffmpegPath); os.IsNotExist(err) {
-		log.Printf("FFmpeg not found at configured path: %s", ffmpegPath)
-		protocol.WriteMessage(conn, protocol.MessageTypeError, []byte(fmt.Sprintf("FFmpeg not found at %s", ffmpegPath)))
+	// Ensure tool path exists
+	if _, err := os.Stat(toolPath); os.IsNotExist(err) {
+		log.Printf("%s not found at configured path: %s", toolName, toolPath)
+		protocol.WriteMessage(conn, protocol.MessageTypeError, []byte(fmt.Sprintf("%s not found at %s", toolName, toolPath)))
 		return
 	}
 
 	// Prepare command
-	cmd := exec.CommandContext(ctx, ffmpegPath, rewrittenArgs...)
+	cmd := exec.CommandContext(ctx, toolPath, rewrittenArgs...)
 
 	// Setup stdin pipe for the command
 	stdin, err := cmd.StdinPipe()
@@ -233,10 +254,10 @@ func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConf
 	}()
 
 	// Start the command
-	log.Printf("Starting FFmpeg: %s %v", ffmpegPath, rewrittenArgs)
+	log.Printf("Starting %s: %s %v", toolName, toolPath, rewrittenArgs)
 	if err := cmd.Start(); err != nil {
-		log.Printf("Error starting FFmpeg: %v", err)
-		protocol.WriteMessage(conn, protocol.MessageTypeError, []byte(fmt.Sprintf("Error starting FFmpeg: %v", err)))
+		log.Printf("Error starting %s: %v", toolName, err)
+		protocol.WriteMessage(conn, protocol.MessageTypeError, []byte(fmt.Sprintf("Error starting %s: %v", toolName, err)))
 		return
 	}
 
@@ -276,7 +297,7 @@ func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConf
 		}
 	}
 
-	log.Printf("FFmpeg process completed with exit code %d", exitCode)
+	log.Printf("%s process completed with exit code %d", toolName, exitCode)
 	protocol.WriteMessage(conn, protocol.MessageTypeExitCode, []byte{byte(exitCode)})
 }
 

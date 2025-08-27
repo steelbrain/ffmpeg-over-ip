@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
@@ -13,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -27,7 +28,7 @@ const (
 	MessageTypeStdinClose = uint8(8)
 
 	// Protocol constants
-	ProtocolVersion = uint8(1)
+	ProtocolVersion = uint8(2)
 	SignatureLength = 64
 )
 
@@ -70,10 +71,26 @@ func CalculateSignature(authSecret string, commandArgs []string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// VerifySignature verifies the HMAC signature for authentication
-func VerifySignature(authSecret, signature string, commandArgs []string) bool {
-	expected := CalculateSignature(authSecret, commandArgs)
+// VerifyCommandSignature verifies the HMAC signature for a command message with tool name
+func VerifyCommandSignature(authSecret, signature, toolName string, commandArgs []string) bool {
+	signatureArgs := append([]string{toolName}, commandArgs...)
+	expected := CalculateSignature(authSecret, signatureArgs)
 	return hmac.Equal([]byte(signature), []byte(expected))
+}
+
+// validateArguments checks for null bytes in tool name and arguments
+func validateArguments(toolName string, arguments []string) error {
+	if strings.Contains(toolName, "\x00") {
+		return fmt.Errorf("tool name contains null bytes: %q", toolName)
+	}
+
+	for i, arg := range arguments {
+		if strings.Contains(arg, "\x00") {
+			return fmt.Errorf("argument %d contains null bytes: %q", i, arg)
+		}
+	}
+
+	return nil
 }
 
 // ReadMessage reads a protocol message from the connection
@@ -146,13 +163,10 @@ func WriteMessage(conn net.Conn, msgType uint8, payload []byte) error {
 	return nil
 }
 
-// WriteCommandMessage writes a command message to the connection
-// It formats the payload according to the protocol specification:
-// - 1 byte protocol version
-// - 64 byte signature (HMAC of the command args)
-// - Command arguments separated by null bytes
-// Returns an error if the connection is nil or if writing to the connection fails
-func WriteCommandMessage(conn net.Conn, authSecret string, args []string) error {
+// WriteCommandMessage writes a command message to the connection using protobuf
+// It validates arguments for null bytes and creates a protobuf-serialized command message
+// Returns an error if validation fails, serialization fails, or writing to connection fails
+func WriteCommandMessage(conn net.Conn, authSecret, toolName string, args []string) error {
 	if conn == nil {
 		return fmt.Errorf("connection is nil")
 	}
@@ -161,67 +175,67 @@ func WriteCommandMessage(conn net.Conn, authSecret string, args []string) error 
 		return fmt.Errorf("no arguments provided for command")
 	}
 
-	// Calculate signature
-	signature := CalculateSignature(authSecret, args)
+	if toolName == "" {
+		return fmt.Errorf("no tool name provided")
+	}
 
-	// Pre-allocate the payload buffer with a reasonable size to avoid reallocations
-	// Initial capacity: version (1) + signature (64) + estimated args size
-	estimatedSize := 1 + SignatureLength + 64*len(args)
-	payload := make([]byte, 0, estimatedSize)
+	// Validate arguments for null bytes
+	if err := validateArguments(toolName, args); err != nil {
+		return fmt.Errorf("invalid arguments: %w", err)
+	}
 
-	// Add version
-	payload = append(payload, ProtocolVersion)
+	// Calculate signature including tool name
+	signatureArgs := append([]string{toolName}, args...)
+	signature := CalculateSignature(authSecret, signatureArgs)
 
-	// Add signature
-	payload = append(payload, []byte(signature)...)
+	// Create protobuf message
+	cmdMsg := &CommandMessage{
+		Version:   uint32(ProtocolVersion),
+		Signature: signature,
+		ToolName:  toolName,
+		Arguments: args,
+	}
 
-	// Add arguments with null byte separators
-	for i, arg := range args {
-		payload = append(payload, []byte(arg)...)
-		if i < len(args)-1 {
-			payload = append(payload, 0) // Null byte separator
-		}
+	// Serialize to protobuf
+	payload, err := proto.Marshal(cmdMsg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal command message: %w", err)
 	}
 
 	return WriteMessage(conn, MessageTypeCommand, payload)
 }
 
-// ParseCommandMessage parses a command message payload into its components:
-// - protocol version (1 byte)
-// - signature (64 bytes)
-// - command arguments (separated by null bytes)
-// Returns an error if the payload is invalid or too short
-func ParseCommandMessage(payload []byte) (version uint8, signature string, args []string, err error) {
-	// Validate payload length
+// ParseCommandMessage parses a protobuf command message payload
+// Returns the parsed command message components and validates for null bytes
+// Returns an error if deserialization fails, version mismatch, or validation fails
+func ParseCommandMessage(payload []byte) (version uint8, signature string, toolName string, args []string, err error) {
 	if payload == nil {
-		return 0, "", nil, fmt.Errorf("payload is nil")
-	}
-	if len(payload) < 1+SignatureLength {
-		return 0, "", nil, fmt.Errorf("invalid command message: payload length %d is too short (minimum required: %d)",
-			len(payload), 1+SignatureLength)
+		return 0, "", "", nil, fmt.Errorf("payload is nil")
 	}
 
-	// Extract version
-	version = payload[0]
+	// Deserialize protobuf message
+	var cmdMsg CommandMessage
+	if err := proto.Unmarshal(payload, &cmdMsg); err != nil {
+		return 0, "", "", nil, fmt.Errorf("failed to unmarshal command message: %w", err)
+	}
+
+	// Extract fields
+	version = uint8(cmdMsg.Version)
+	signature = cmdMsg.Signature
+	toolName = cmdMsg.ToolName
+	args = cmdMsg.Arguments
+
+	// Check protocol version
 	if version != ProtocolVersion {
-		// We still proceed but warn via an error that versions don't match
-		// This allows for future backwards compatibility
 		err = fmt.Errorf("protocol version mismatch: got %d, expected %d", version, ProtocolVersion)
 	}
 
-	// Extract signature
-	signature = string(payload[1 : 1+SignatureLength])
-
-	// Extract arguments
-	argsPart := payload[1+SignatureLength:]
-	if len(argsPart) > 0 {
-		// Split arguments by null byte
-		for _, arg := range bytes.Split(argsPart, []byte{0}) {
-			args = append(args, string(arg))
-		}
+	// Validate arguments for null bytes (server-side protection)
+	if validateErr := validateArguments(toolName, args); validateErr != nil {
+		return 0, "", "", nil, fmt.Errorf("malformed command message: %w", validateErr)
 	}
 
-	return version, signature, args, err
+	return version, signature, toolName, args, err
 }
 
 // ConnectWithTimeout attempts to connect with a timeout
