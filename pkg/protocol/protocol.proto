@@ -8,13 +8,13 @@ option go_package = "github.com/steelbrain/ffmpeg-over-ip/pkg/protocol";
 message CommandMessage {
     // Protocol version
     uint32 version = 1;
-    
+
     // HMAC signature for authentication (hex-encoded string)
     string signature = 2;
-    
+
     // Tool name to execute (e.g., "ffmpeg", "ffprobe")
     string tool_name = 3;
-    
+
     // Command line arguments
     repeated string arguments = 4;
 }
