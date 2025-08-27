@@ -336,12 +336,12 @@ func detectToolName(toolOverride string) string {
 
 	// 2. Detect from binary name
 	binaryName := filepath.Base(os.Args[0])
-	
+
 	// If binary name is exactly "ffmpeg-over-ip-client", default to "ffmpeg"
 	if binaryName == "ffmpeg-over-ip-client" {
 		return "ffmpeg"
 	}
-	
+
 	// If binary name starts with "ffmpeg-over-ip-client-", extract the suffix
 	if strings.HasPrefix(binaryName, "ffmpeg-over-ip-client-") {
 		toolName := strings.TrimPrefix(binaryName, "ffmpeg-over-ip-client-")
@@ -349,7 +349,7 @@ func detectToolName(toolOverride string) string {
 			return toolName
 		}
 	}
-	
+
 	// If binary name is something else entirely, use it as the tool name
 	// This handles cases like symlinks: ffmpeg, ffprobe, etc.
 	return binaryName

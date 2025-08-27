@@ -77,19 +77,19 @@ func TestProtobufCommandMessage(t *testing.T) {
 	if cmdMsg.GetVersion() != uint32(ProtocolVersion) {
 		t.Errorf("version mismatch: got %d, want %d", cmdMsg.GetVersion(), ProtocolVersion)
 	}
-	
+
 	if cmdMsg.GetSignature() != signature {
 		t.Errorf("signature mismatch: got %q, want %q", cmdMsg.GetSignature(), signature)
 	}
-	
+
 	if cmdMsg.GetToolName() != toolName {
 		t.Errorf("tool name mismatch: got %q, want %q", cmdMsg.GetToolName(), toolName)
 	}
-	
+
 	if len(cmdMsg.GetArguments()) != len(args) {
 		t.Errorf("arguments length mismatch: got %d, want %d", len(cmdMsg.GetArguments()), len(args))
 	}
-	
+
 	for i, arg := range cmdMsg.GetArguments() {
 		if arg != args[i] {
 			t.Errorf("argument %d mismatch: got %q, want %q", i, arg, args[i])
@@ -116,10 +116,10 @@ func TestProtobufRoundTrip(t *testing.T) {
 	if len(mockConn.buffer) < 5 {
 		t.Fatalf("buffer too short: %d bytes", len(mockConn.buffer))
 	}
-	
+
 	payload := mockConn.buffer[5:] // Skip message header
 
-	// Parse command message  
+	// Parse command message
 	version, signature, parsedToolName, parsedArgs, err := ParseCommandMessage(payload)
 	if err != nil {
 		t.Fatalf("ParseCommandMessage failed: %v", err)
@@ -139,7 +139,7 @@ func TestProtobufRoundTrip(t *testing.T) {
 	if len(parsedArgs) != len(args) {
 		t.Errorf("arguments length mismatch: got %d, want %d", len(parsedArgs), len(args))
 	}
-	
+
 	for i, arg := range parsedArgs {
 		if arg != args[i] {
 			t.Errorf("argument %d mismatch: got %q, want %q", i, arg, args[i])
