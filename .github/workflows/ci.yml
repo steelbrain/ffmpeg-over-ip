@@ -21,7 +21,7 @@ jobs:
           check-latest: true
 
       - name: Install Protocol Buffers compiler
-        run: apt-get update && apt-get install -y protobuf-compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Install Go protobuf plugin
         run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
