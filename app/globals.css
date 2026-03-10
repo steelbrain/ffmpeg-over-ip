@@ -18,3 +18,7 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
+
+[id] {
+  scroll-margin-top: 5rem;
+}
