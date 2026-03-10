@@ -7,7 +7,7 @@ export default function Home() {
   return (
     <div>
       {/* Hero */}
-      <section className="relative overflow-hidden px-6 py-24 sm:py-32">
+      <section className="relative overflow-hidden px-6 py-16 sm:py-20">
         <div className="absolute inset-0 bg-gradient-to-b from-blue-950/20 to-transparent" />
         <div className="relative mx-auto max-w-4xl text-center">
           <h1 className="text-5xl font-bold tracking-tight sm:text-7xl">
