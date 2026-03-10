@@ -70,7 +70,6 @@ Multiple clients can connect to the same server simultaneously — each session 
 | macOS arm64 | ✓ | ✓ |
 | macOS x86_64 | ✓ | ✓ |
 | Windows x86_64 | ✓ | ✓ |
-| Windows arm64 | ✓ | — |
 
 
 ## Troubleshooting
