@@ -1,6 +1,6 @@
 # Quick Start
 
-Download the latest release for your platform from the [releases page](https://github.com/steelbrain/ffmpeg-over-ip-v5/releases/latest).
+Download the latest release for your platform from the [releases page](https://github.com/steelbrain/ffmpeg-over-ip/releases/latest).
 
 ## Server Setup (GPU machine)
 
