@@ -2,6 +2,8 @@
 
 **Connection refused** — Check that the server is running, the address and port match your config, and the port is reachable (firewall, cloud security group, Docker network). Also verify the server is listening on the right host — `127.0.0.1:5050` only accepts local connections. Use `0.0.0.0:5050` to listen on all interfaces.
 
+> **Tip:** To test whether the port is reachable, run `telnet <server-ip> <port>` from the client machine. If telnet can't connect, a firewall or security group is blocking the port — fix that before troubleshooting ffmpeg-over-ip itself.
+
 **Authentication failed** — The `authSecret` must match exactly between client and server configs.
 
 **Codec not found / encoder not available** — The server's ffmpeg may not support the requested codec. Use `rewrites` in the server config to map unsupported codecs to available ones (e.g., `["h264_nvenc", "h264_qsv"]`). See [configuration.md](configuration.md#rewrites).
