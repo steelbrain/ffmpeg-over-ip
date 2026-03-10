@@ -5,9 +5,17 @@ import { usePathname } from "next/navigation"
 import { useState } from "react"
 import type { DocPage } from "./content"
 
+function useLinkClass() {
+  const pathname = usePathname()
+  return (slug: string) =>
+    `block rounded-lg px-3 py-2 text-sm transition-colors ${
+      pathname === `/docs/${slug}` ? "bg-white/10 text-white" : "text-gray-400 hover:bg-white/5 hover:text-white"
+    }`
+}
+
 export function MobileNav({ docs }: { docs: DocPage[] }) {
   const [open, setOpen] = useState(false)
-  const pathname = usePathname()
+  const linkClass = useLinkClass()
 
   return (
     <div className="mb-6 md:hidden">
@@ -39,11 +47,7 @@ export function MobileNav({ docs }: { docs: DocPage[] }) {
               key={doc.slug}
               href={`/docs/${doc.slug}`}
               onClick={() => setOpen(false)}
-              className={`block rounded-lg px-3 py-2 text-sm transition-colors ${
-                pathname === `/docs/${doc.slug}`
-                  ? "bg-white/10 text-white"
-                  : "text-gray-400 hover:bg-white/5 hover:text-white"
-              }`}
+              className={linkClass(doc.slug)}
             >
               {doc.title}
             </Link>
@@ -51,5 +55,22 @@ export function MobileNav({ docs }: { docs: DocPage[] }) {
         </div>
       )}
     </div>
+  )
+}
+
+export function DesktopNav({ docs }: { docs: DocPage[] }) {
+  const linkClass = useLinkClass()
+
+  return (
+    <nav className="hidden w-56 shrink-0 md:block">
+      <div className="sticky top-24 space-y-1">
+        <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Documentation</div>
+        {docs.map((doc) => (
+          <Link key={doc.slug} href={`/docs/${doc.slug}`} className={linkClass(doc.slug)}>
+            {doc.title}
+          </Link>
+        ))}
+      </div>
+    </nav>
   )
 }
