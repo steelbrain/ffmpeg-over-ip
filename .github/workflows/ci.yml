@@ -2,46 +2,84 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, 'steelbrain/**']
   pull_request:
 
+env:
+  GO_VERSION: "1.24"
+
 jobs:
-  build-and-test:
-    name: Build and Test
+  go-tests:
+    name: Go Tests
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '>=1.18'
-          check-latest: true
-
-      - name: Format Check
-        id: fmt-check
+      - name: Install build dependencies
         run: |
-          go fmt ./...
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "Code is not properly formatted. Run 'go fmt ./...' locally and commit the changes."
-            git status --porcelain
-            exit 1
-          fi
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Build
-        run: make build
+        run: go build ./...
 
       - name: Test
-        run: make test
+        run: go test ./internal/... -race -count=1 -timeout 120s
 
-      - name: Build for all platforms
-        run: make cross-platform
+  fio-unit-tests:
+    name: fio Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Upload cross-platform binaries as artifacts
-        uses: actions/upload-artifact@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Build and run fio tests
+        run: |
+          cd fio
+          cc -Wall -Wextra -Werror -std=c11 -DFIO_TESTING -D_DEFAULT_SOURCE \
+            -o fio_test fio.c fio_test.c -lpthread
+          ./fio_test
+
+      - name: Build and run fio tests (sanitizers)
+        run: |
+          cd fio
+          cc -Wall -Wextra -Werror -std=c11 -DFIO_TESTING -D_DEFAULT_SOURCE \
+            -fsanitize=address,undefined -fno-omit-frame-pointer -g \
+            -o fio_test_sanitize fio.c fio_test.c -lpthread
+          ./fio_test_sanitize
+
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
         with:
-          name: ffmpeg-over-ip-cross-platform
-          path: release/
-          if-no-files-found: error
+          submodules: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y patch
+
+      - name: Patch ffmpeg source
+        run: |
+          cp fio/fio.c fio/fio.h third_party/jellyfin-ffmpeg/libavformat/
+          cd third_party/jellyfin-ffmpeg
+          for patch in ../../patches/*.patch; do
+            patch -p1 < "$patch"
+          done
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Scan for raw syscalls
+        run: python3 tests/static-analysis/scan-raw-syscalls.py third_party/jellyfin-ffmpeg

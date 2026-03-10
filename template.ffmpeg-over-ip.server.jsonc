@@ -5,33 +5,27 @@
   "log": "stdout", // type: "stdout" | "stderr" | any string (file path) | false
   // Other possibilities (EXAMPLES - choose only one):
   // "log": "$TMPDIR/ffmpeg-over-ip.server.log",  // Uses the operating system temp folder
+  // "log": "$HOME/ffmpeg-over-ip.server.log",  // Uses the user's home folder
   // "log": false,  // Turns off logging completely
   // "log": "stderr",  // Log to stderr
   // "log": "/var/log/messages.log",  // Log to a specific file
 
-  "address": "0.0.0.0:5050", // type: string, format: "host:port" or "/path/to/unix.sock"
-  // You can use either "host:port" format for TCP connections or a path to a Unix socket
+  "address": "0.0.0.0:5050", // type: string, format: "host:port" or "unix:/path/to/socket"
+  // TCP connections use "host:port" format. For Unix domain sockets, prefix with "unix:"
   // Examples:
-  // "address": "127.0.0.1:5050"    // Listen only on localhost
-  // "address": "0.0.0.0:5050"     // Listen on all interfaces (default)
-  // "address": "/tmp/ffmpeg-over-ip.sock"  // Use Unix socket
+  // "address": "127.0.0.1:5050"                   // Listen only on localhost
+  // "address": "0.0.0.0:5050"                     // Listen on all interfaces (default)
+  // "address": "unix:/tmp/ffmpeg-over-ip.sock"     // Use Unix socket
 
   "authSecret": "YOUR-CLIENT-PASSWORD-HERE", // type: string
   // ^ Ideally more than 15 characters long
 
-  "ffmpegPath": "/usr/bin/ffmpeg", // type: string
-  // ^ For windows, you may have to use slash twice because of how strings in JSON work, so C:\Windows would be "C:\\Windows" etc
+  "debug": true, // type: boolean
+  // ^ When set to true, original and rewritten args will be logged for each command
+  // This is useful for troubleshooting ffmpeg commands and rewrites
 
-  "debug": false, // type: boolean
-  // ^ When set to true, command stdout/stderr will be logged to the server logs
-  // This is useful for troubleshooting ffmpeg commands
-
+  // Optional: rewrite codec names in ffmpeg arguments
   "rewrites": [
-    ["/data/movies/", "M:\\movies\\"],
-    ["/data/tv/", "M:\\tv\\"],
-    ["/config/data/transcodes/", "N:\\transcodes\\"],
-    // ^ VERY IMPORTANT! For path rewrites BOTH input and output MUST have trailing slashes
-    // You can also use rewrites to map codecs, ie:
     ["libfdk_aac", "aac"]
   ]
 }

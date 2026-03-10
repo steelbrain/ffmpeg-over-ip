@@ -6,3 +6,13 @@ node_modules
 # Testing configs
 ffmpeg-over-ip.client.jsonc
 ffmpeg-over-ip.server.jsonc
+
+# Build artifacts
+build/
+fio/fio_test
+fio/fio_test_sanitize
+fio/*.plist
+fio/*.dSYM/
+tests/fio-bins/fio_copy
+tests/fio-bins/fio_ops
+tests/integration/harness

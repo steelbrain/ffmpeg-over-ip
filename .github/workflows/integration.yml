@@ -1,0 +1,95 @@
+name: Integration
+
+on:
+  push:
+    branches: [main, 'steelbrain/**']
+  pull_request:
+
+env:
+  GO_VERSION: "1.24"
+
+jobs:
+  build-ffmpeg:
+    name: Build Patched ffmpeg
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Cache ffmpeg build
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: build/ffmpeg
+          key: ffmpeg-${{ hashFiles('third_party/jellyfin-ffmpeg/.git', 'patches/*.patch', 'fio/fio.c', 'fio/fio.h') }}-minimal
+
+      - name: Build ffmpeg (minimal)
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential nasm yasm patch
+          bash scripts/build-ffmpeg.sh --minimal
+
+      - name: Upload ffmpeg binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-binaries
+          path: build/ffmpeg/bin/
+          retention-days: 7
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [build-ffmpeg]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download ffmpeg binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-binaries
+          path: build/ffmpeg/bin/
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Make ffmpeg executable
+        run: chmod +x build/ffmpeg/bin/*
+
+      - name: Build fio test binaries
+        run: |
+          cd tests/fio-bins
+          cc -Wall -Wextra -Werror -std=c11 -DFIO_TESTING -D_DEFAULT_SOURCE \
+            -I../../fio -o fio_copy ../../fio/fio.c fio_copy.c -lpthread
+          cc -Wall -Wextra -Werror -std=c11 -DFIO_TESTING -D_DEFAULT_SOURCE \
+            -I../../fio -o fio_ops ../../fio/fio.c fio_ops.c -lpthread
+
+      - name: Run integration tests
+        run: |
+          FAILED=0
+          for test in tests/integration/test-*.sh; do
+            echo ""
+            echo "========================================"
+            echo "Running: $(basename $test)"
+            echo "========================================"
+            if bash "$test"; then
+              echo "PASSED: $(basename $test)"
+            else
+              echo "FAILED: $(basename $test)"
+              FAILED=1
+            fi
+          done
+          if [ "$FAILED" -ne 0 ]; then
+            echo ""
+            echo "Some integration tests FAILED"
+            exit 1
+          fi
+          echo ""
+          echo "All integration tests PASSED"

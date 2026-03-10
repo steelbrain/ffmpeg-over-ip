@@ -1,0 +1,21 @@
+diff --git a/libavformat/hlsenc.c b/libavformat/hlsenc.c
+index 081d91f..894854f 100644
+--- a/libavformat/hlsenc.c
++++ b/libavformat/hlsenc.c
+@@ -26,6 +26,7 @@
+ #include <time.h>
+ #if HAVE_UNISTD_H
+ #include <unistd.h>
++#include "fio.h"
+ #endif
+ 
+ #include "libavutil/avassert.h"
+@@ -593,7 +594,7 @@ static int hls_delete_file(HLSContext *hls, AVFormatContext *avf,
+ 
+         //Nothing to write
+         hlsenc_io_close(avf, &hls->http_delete, path);
+-    } else if (unlink(path) < 0) {
++    } else if (fio_unlink(path) < 0) {
+         av_log(hls, AV_LOG_ERROR, "failed to delete old segment %s: %s\n",
+                path, strerror(errno));
+     }

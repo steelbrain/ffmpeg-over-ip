@@ -1,6 +1,13 @@
-The MIT License (MIT)
+This project uses a split license:
 
-Copyright (c) 2025 @steelbrain
+- **`fio/` and `patches/`** are licensed under the GNU General Public License v3.0 (see below), as they are derived from or designed to integrate with ffmpeg (which is GPL).
+- **Everything else** is licensed under the MIT License (see below).
+
+---
+
+## MIT License
+
+Copyright (c) 2026 Anees Iqbal
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +26,24 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+---
+
+## GNU General Public License v3.0
+
+Applies to: `fio/` and `patches/`
+
+Copyright (c) 2026 Anees Iqbal
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.

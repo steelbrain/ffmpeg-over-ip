@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    branches: [main, 'steelbrain/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.24"
+
+jobs:
+  release:
+    name: ${{ matrix.platform }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux-amd64
+            goos: linux
+            goarch: amd64
+            ffmpeg_target: linux64
+            ext: ""
+          - platform: linux-arm64
+            goos: linux
+            goarch: arm64
+            ffmpeg_target: linuxarm64
+            ext: ""
+          - platform: windows-amd64
+            goos: windows
+            goarch: amd64
+            ffmpeg_target: win64
+            ext: ".exe"
+          - platform: macos-arm64
+            goos: darwin
+            goarch: arm64
+            ffmpeg_target: macarm64
+            ext: ""
+          - platform: macos-amd64
+            goos: darwin
+            goarch: amd64
+            ffmpeg_target: mac64
+            ext: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build Go binaries
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          go build -trimpath -ldflags="-s -w" \
+            -o ffmpeg-over-ip-client${{ matrix.ext }} ./cmd/client
+          go build -trimpath -ldflags="-s -w" \
+            -o ffmpeg-over-ip-server${{ matrix.ext }} ./cmd/server
+
+      - name: Extract ffmpeg binaries
+        run: |
+          mkdir -p ffmpeg-bin
+          ARCHIVE=$(ls artifacts/*_${{ matrix.ffmpeg_target }}-gpl.*)
+          case "$ARCHIVE" in
+            *.tar.xz) tar xf "$ARCHIVE" -C ffmpeg-bin ;;
+            *.zip)    unzip -q "$ARCHIVE" -d ffmpeg-bin ;;
+          esac
+
+      - name: Upload client
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-ffmpeg-over-ip-client
+          path: ffmpeg-over-ip-client${{ matrix.ext }}
+          retention-days: 30
+
+      - name: Prepare server package
+        run: |
+          cp ffmpeg-bin/ffmpeg${{ matrix.ext }} ffmpeg${{ matrix.ext }}
+          cp ffmpeg-bin/ffprobe${{ matrix.ext }} ffprobe${{ matrix.ext }}
+
+      - name: Upload server
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-ffmpeg-over-ip-server
+          path: |
+            ffmpeg-over-ip-server${{ matrix.ext }}
+            ffmpeg${{ matrix.ext }}
+            ffprobe${{ matrix.ext }}
+          retention-days: 30

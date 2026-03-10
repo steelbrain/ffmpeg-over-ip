@@ -1,0 +1,28 @@
+diff --git a/libavformat/utils.c b/libavformat/utils.c
+index e892e8b..81a08a7 100644
+--- a/libavformat/utils.c
++++ b/libavformat/utils.c
+@@ -38,6 +38,7 @@
+ #include "network.h"
+ #endif
+ #include "os_support.h"
++#include "fio.h"
+ 
+ /**
+  * @file
+@@ -432,13 +433,13 @@ int ff_mkdir_p(const char *path)
+         if (*pos == '/' || *pos == '\\') {
+             tmp_ch = *pos;
+             *pos = '\0';
+-            ret = mkdir(temp, 0755);
++            ret = fio_mkdir(temp, 0755);
+             *pos = tmp_ch;
+         }
+     }
+ 
+     if ((*(pos - 1) != '/') && (*(pos - 1) != '\\')) {
+-        ret = mkdir(temp, 0755);
++        ret = fio_mkdir(temp, 0755);
+     }
+ 
+     av_free(temp);
