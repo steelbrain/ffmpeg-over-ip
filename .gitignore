@@ -16,3 +16,8 @@ fio/*.dSYM/
 tests/fio-bins/fio_copy
 tests/fio-bins/fio_ops
 tests/integration/harness
+
+# Website branch artifacts
+.next/
+next-env.d.ts
+tsconfig.tsbuildinfo

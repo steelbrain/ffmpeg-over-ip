@@ -10,4 +10,14 @@
 
 **Server can't find ffmpeg** — `ffmpeg` and `ffprobe` must be in the same directory as `ffmpeg-over-ip-server`.
 
+**macOS Gatekeeper error** — Downloaded binaries may be quarantined by macOS. You may see `"ffmpeg-over-ip" Not Opened — Apple could not verify "ffmpeg-over-ip" is free of malware that may harm your Mac or compromise your privacy`, or `Killed: 9` when running from the terminal. Remove the quarantine attribute:
+
+```bash
+# Server package
+xattr -dr com.apple.quarantine ffmpeg ffprobe ffmpeg-over-ip-server
+
+# Client package
+xattr -dr com.apple.quarantine ffmpeg-over-ip-client
+```
+
 **Need more detail?** — Enable logging on both sides. Set `"log": "stdout"` and `"debug": true` on the server to see the commands being executed. Set `"log": "/tmp/ffmpeg-over-ip.log"` on the client to capture client-side activity.
