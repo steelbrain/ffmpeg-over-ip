@@ -149,6 +149,12 @@ if [[ "$TARGET" == mac* ]]; then
         sudo chown "$(whoami)" "$FFBUILD_PREFIX"
     fi
 
+    # Wipe the prefix — it is shared across mac targets, and leftover
+    # libraries from a prior arch (e.g. arm64 libz after macarm64) will
+    # poison the current x86_64 build.
+    echo "Wiping $FFBUILD_PREFIX ..."
+    rm -rf "${FFBUILD_PREFIX:?}"/*
+
     # Add helper scripts to PATH (build scripts expect them without .sh extension)
     HELPER_BIN="$ROOT/build/mac-bin"
     mkdir -p "$HELPER_BIN"
@@ -159,7 +165,7 @@ if [[ "$TARGET" == mac* ]]; then
 
     # Install brew dependencies that 00-dep.sh would normally handle
     echo "=== Checking brew dependencies ==="
-    BREW_DEPS=(nasm automake autoconf cmake meson ninja pkg-config coreutils libtool gnu-sed gnu-tar quilt texinfo wget)
+    BREW_DEPS=(nasm automake autoconf cmake meson ninja pkg-config coreutils libtool gnu-sed gnu-tar quilt subversion texinfo wget)
     MISSING=()
     for dep in "${BREW_DEPS[@]}"; do
         brew list "$dep" &>/dev/null || MISSING+=("$dep")
