@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, 'steelbrain/**']
+    branches: [main]
   pull_request:
 
 env:
