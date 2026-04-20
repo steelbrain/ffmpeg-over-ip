@@ -831,6 +831,17 @@ static fio_vfd_t *vfd_get(int fd) {
     return &fio_state.vfds[idx];
 }
 
+/* Real kernel fds (stdio, dup'd stdio, fd: protocol, etc.) live below
+ * FIO_VFD_BASE. Virtual fds returned by fio_open start at FIO_VFD_BASE.
+ * Anything below that range didn't come from our tunnel — ffmpeg got it
+ * from the kernel (pipe: protocol dups stdin/stdout into a fresh fd; fd:
+ * takes an fd directly), so read/write/seek/close/fstat on it must go to
+ * real syscalls. Server-side Go plumbing already forwards stdio to/from
+ * the client (MsgStdin/MsgStdout/MsgStderr). */
+static inline int is_real_fd(int fd) {
+    return fd >= 0 && fd < FIO_VFD_BASE;
+}
+
 static void vfd_free(int fd) {
     if (fd < FIO_VFD_BASE || fd >= FIO_VFD_BASE + FIO_MAX_FILES) return;
     fio_state.vfds[fd - FIO_VFD_BASE].active = 0;
@@ -980,7 +991,7 @@ int fio_open(const char *path, int flags, mode_t mode) {
 ssize_t fio_read(int fd, void *buf, size_t count) {
     fio_ensure_init();
 
-    if (fio_state.initialized == 1) {
+    if (fio_state.initialized == 1 || is_real_fd(fd)) {
         return read(fd, buf, count);
     }
 
@@ -1029,7 +1040,7 @@ ssize_t fio_read(int fd, void *buf, size_t count) {
 ssize_t fio_write(int fd, const void *buf, size_t count) {
     fio_ensure_init();
 
-    if (fio_state.initialized == 1) {
+    if (fio_state.initialized == 1 || is_real_fd(fd)) {
         return write(fd, buf, count);
     }
 
@@ -1080,7 +1091,7 @@ ssize_t fio_write(int fd, const void *buf, size_t count) {
 off_t fio_lseek(int fd, off_t offset, int whence) {
     fio_ensure_init();
 
-    if (fio_state.initialized == 1) {
+    if (fio_state.initialized == 1 || is_real_fd(fd)) {
 #ifdef _WIN32
         return _lseeki64(fd, offset, whence);
 #else
@@ -1138,7 +1149,7 @@ off_t fio_lseek(int fd, off_t offset, int whence) {
 int fio_close(int fd) {
     fio_ensure_init();
 
-    if (fio_state.initialized == 1) {
+    if (fio_state.initialized == 1 || is_real_fd(fd)) {
         return close(fd);
     }
 
@@ -1174,7 +1185,7 @@ int fio_close(int fd) {
 int fio_fstat(int fd, struct stat *st) {
     fio_ensure_init();
 
-    if (fio_state.initialized == 1) {
+    if (fio_state.initialized == 1 || is_real_fd(fd)) {
         return fstat(fd, st);
     }
 
@@ -1234,7 +1245,7 @@ int fio_fstat(int fd, struct stat *st) {
 int fio_ftruncate(int fd, off_t length) {
     fio_ensure_init();
 
-    if (fio_state.initialized == 1) {
+    if (fio_state.initialized == 1 || is_real_fd(fd)) {
 #ifdef _WIN32
         return _chsize_s(fd, length) == 0 ? 0 : -1;
 #else
