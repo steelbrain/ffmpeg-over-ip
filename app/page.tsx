@@ -46,8 +46,53 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Get Started */}
+      <section className="px-6 pt-16 pb-10">
+        <div className="mx-auto max-w-6xl">
+          <h2 className="text-center text-3xl font-bold sm:text-4xl">Get Started</h2>
+          <p className="mx-auto mt-4 max-w-2xl text-center text-gray-400">
+            One-line install. Each script downloads the latest release, prompts for host, port, and auth secret, then
+            writes a starter config file in the current directory.
+          </p>
+
+          <div className="mt-12 grid gap-6 md:grid-cols-2">
+            <InstallCard
+              kind="Server"
+              accentClass="text-emerald-400"
+              location="Run on the GPU machine"
+              shCommand="curl -fsSL https://ffmpeg-over-ip.com/install-server.sh | sh"
+              psCommand="irm https://ffmpeg-over-ip.com/install-server.ps1 | iex"
+            />
+            <InstallCard
+              kind="Client"
+              accentClass="text-blue-400"
+              location="Run on the media-server machine"
+              shCommand="curl -fsSL https://ffmpeg-over-ip.com/install-client.sh | sh"
+              psCommand="irm https://ffmpeg-over-ip.com/install-client.ps1 | iex"
+            />
+          </div>
+
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+            <Link
+              href="/docs/quick-start"
+              className="rounded-full border border-white/20 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10 transition-colors"
+            >
+              Read the Docs
+            </Link>
+            <a
+              href={RELEASE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-full border border-white/20 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10 transition-colors"
+            >
+              Download Manually
+            </a>
+          </div>
+        </div>
+      </section>
+
       {/* Problem */}
-      <section className="px-6 py-20">
+      <section className="px-6 pt-10 pb-20">
         <div className="mx-auto max-w-6xl">
           <h2 className="text-center text-3xl font-bold sm:text-4xl">The Problem</h2>
           <p className="mx-auto mt-4 max-w-2xl text-center text-gray-400">
@@ -202,31 +247,43 @@ export default function Home() {
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="px-6 py-20">
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-bold sm:text-4xl">Get Started</h2>
-          <p className="mt-4 text-gray-400">
-            Up and running in a few minutes. Download the release, configure, and go.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
-            <a
-              href={RELEASE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-full bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg hover:bg-blue-500 transition-colors"
-            >
-              Download Latest Release
-            </a>
-            <Link
-              href="/docs/quick-start"
-              className="rounded-full border border-white/20 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10 transition-colors"
-            >
-              Read the Docs
-            </Link>
-          </div>
+    </div>
+  )
+}
+
+function InstallCard({
+  kind,
+  accentClass,
+  location,
+  shCommand,
+  psCommand,
+}: {
+  kind: string
+  accentClass: string
+  location: string
+  shCommand: string
+  psCommand: string
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-6">
+      <div className={`text-xs font-semibold uppercase tracking-wider ${accentClass}`}>{kind}</div>
+      <div className="mt-1 text-sm text-gray-400">{location}</div>
+      <div className="mt-5 space-y-4">
+        <div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500">macOS / Linux</div>
+          <pre className="whitespace-pre-wrap break-all rounded-lg border border-white/10 bg-black/30 p-3 text-xs leading-relaxed">
+            <code className="font-mono">{shCommand}</code>
+          </pre>
         </div>
-      </section>
+        <div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
+            Windows (PowerShell)
+          </div>
+          <pre className="whitespace-pre-wrap break-all rounded-lg border border-white/10 bg-black/30 p-3 text-xs leading-relaxed">
+            <code className="font-mono">{psCommand}</code>
+          </pre>
+        </div>
+      </div>
     </div>
   )
 }
