@@ -38,7 +38,29 @@ Releases include pre-built ffmpeg and ffprobe binaries with broad hardware accel
 
 ## Quick Start
 
-See [docs/quick-start.md](docs/quick-start.md) to get up and running in a few minutes.
+One-line install. Each script downloads the latest release, prompts for host/port/auth secret, and writes a starter config file in the current directory.
+
+**On the GPU machine** (server):
+
+```sh
+curl -fsSL https://ffmpeg-over-ip.com/install-server.sh | sh
+```
+
+```powershell
+irm https://ffmpeg-over-ip.com/install-server.ps1 | iex
+```
+
+**On the media-server machine** (client):
+
+```sh
+curl -fsSL https://ffmpeg-over-ip.com/install-client.sh | sh
+```
+
+```powershell
+irm https://ffmpeg-over-ip.com/install-client.ps1 | iex
+```
+
+Re-runs are idempotent — already-installed binaries and existing configs are left alone. For manual install or detailed setup, see [docs/quick-start.md](docs/quick-start.md).
 
 ## Upgrading from v4
 
