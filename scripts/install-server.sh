@@ -36,7 +36,7 @@ platform="${os}-${arch}"
 prompt() {
     label="$1"; default="$2"
     if [ -n "$default" ]; then
-        printf '%s [%s]: ' "$label" "$default" > /dev/tty
+        printf '%s [default=%s]: ' "$label" "$default" > /dev/tty
     else
         printf '%s: ' "$label" > /dev/tty
     fi

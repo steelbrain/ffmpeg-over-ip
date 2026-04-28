@@ -34,7 +34,7 @@ function Read-FromHost {
 
 function Read-Default {
     param([string]$Label, [string]$Default)
-    $value = Read-FromHost "$Label [$Default]"
+    $value = Read-FromHost "$Label [default=$Default]"
     if ([string]::IsNullOrWhiteSpace($value)) { return $Default }
     return $value
 }
