@@ -92,11 +92,10 @@ else
 
     echo "Extracting..."
     unzip -o -q "$tmp_zip" -d "$tmp_dir/extract"
-    # The release zip wraps everything in a single top-level directory.
-    extract_root="$tmp_dir/extract/${platform}-ffmpeg-over-ip-${ROLE}"
-    if [ ! -d "$extract_root" ]; then
-        echo "Unexpected zip layout: missing $extract_root" >&2
-        exit 1
+    # Older releases nest files in a top-level wrapper dir; newer ones are flat.
+    extract_root="$tmp_dir/extract"
+    if [ -d "$extract_root/${platform}-ffmpeg-over-ip-${ROLE}" ]; then
+        extract_root="$extract_root/${platform}-ffmpeg-over-ip-${ROLE}"
     fi
     # cp -R src/. . copies contents (incl. hidden files) without the wrapper.
     cp -Rf "$extract_root"/. .

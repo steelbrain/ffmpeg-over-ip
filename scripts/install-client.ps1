@@ -62,10 +62,11 @@ if ((Test-Path $Binary) -and -not $env:FOIP_FORCE) {
         Invoke-WebRequest -Uri $url -OutFile $tmpZip -UseBasicParsing
         Write-Host 'Extracting...'
         Expand-Archive -Path $tmpZip -DestinationPath $tmpExtract -Force
-        # The release zip wraps everything in a single top-level directory.
-        $extractRoot = Join-Path $tmpExtract "$Platform-ffmpeg-over-ip-$Role"
-        if (-not (Test-Path $extractRoot)) {
-            throw "Unexpected zip layout: missing $extractRoot"
+        # Older releases nest files in a top-level wrapper dir; newer ones are flat.
+        $extractRoot = $tmpExtract
+        $wrapper = Join-Path $tmpExtract "$Platform-ffmpeg-over-ip-$Role"
+        if (Test-Path -LiteralPath $wrapper -PathType Container) {
+            $extractRoot = $wrapper
         }
         Get-ChildItem -Path $extractRoot -Force | Move-Item -Destination . -Force
     } finally {
