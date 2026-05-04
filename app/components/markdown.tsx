@@ -13,6 +13,13 @@ const components: Components = {
         </Link>
       )
     }
+    if (href?.startsWith("#")) {
+      return (
+        <a href={href} {...props}>
+          {children}
+        </a>
+      )
+    }
     return (
       <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
         {children}
