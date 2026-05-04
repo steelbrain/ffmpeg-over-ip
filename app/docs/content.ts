@@ -69,6 +69,18 @@ Test the connection by running a command through the client:
 \`\`\`
 
 You should see the server's ffmpeg version and build info. If you get a connection error, double-check the address, port, and auth secret.
+
+## Alternative: Environment Variables
+
+Instead of config files, you can pass configuration via environment variables. This is useful for Docker and scripted deployments:
+
+\`\`\`bash
+export FFMPEG_OVER_IP_SERVER_ADDRESS=0.0.0.0:5050
+export FFMPEG_OVER_IP_SERVER_AUTH_SECRET=pick-a-strong-secret
+./ffmpeg-over-ip-server
+\`\`\`
+
+See [Configuration](/docs/configuration#environment-variables) for all supported variables.
 `,
   },
   {
@@ -77,12 +89,54 @@ You should see the server's ffmpeg version and build info. If you get a connecti
     content: `
 Config files use [JSONC](https://code.visualstudio.com/docs/languages/json#_json-with-comments) format (JSON with \`//\` comments, \`/* */\` block comments, and trailing commas).
 
+## Config Resolution Order
+
+Configuration is resolved in this order (first match wins):
+
+1. **Explicit path** — \`--config <path>\` (server only)
+2. **Config file env var** — \`FFMPEG_OVER_IP_SERVER_CONFIG\` / \`FFMPEG_OVER_IP_CLIENT_CONFIG\` pointing to a file
+3. **Individual env vars** — if both \`_ADDRESS\` and \`_AUTH_SECRET\` are set (see [Environment Variables](#environment-variables) below)
+4. **File search** — standard paths (see below)
+
+## Environment Variables
+
+If both \`ADDRESS\` and \`AUTH_SECRET\` env vars are set (and no \`_CONFIG\` env var is set), configuration is read entirely from environment variables — no config file is needed.
+
+### Client
+
+| Variable | Required | Description |
+|---|---|---|
+| \`FFMPEG_OVER_IP_CLIENT_ADDRESS\` | Yes | Server address (\`host:port\` or \`unix:/path\`) |
+| \`FFMPEG_OVER_IP_CLIENT_AUTH_SECRET\` | Yes | HMAC auth secret (must match server) |
+| \`FFMPEG_OVER_IP_CLIENT_LOG\` | No | Log destination: \`stdout\`, \`stderr\`, or file path |
+
+### Server
+
+| Variable | Required | Description |
+|---|---|---|
+| \`FFMPEG_OVER_IP_SERVER_ADDRESS\` | Yes | Listen address (\`host:port\` or \`unix:/path\`) |
+| \`FFMPEG_OVER_IP_SERVER_AUTH_SECRET\` | Yes | HMAC auth secret (must match client) |
+| \`FFMPEG_OVER_IP_SERVER_LOG\` | No | Log destination: \`stdout\`, \`stderr\`, or file path |
+| \`FFMPEG_OVER_IP_SERVER_DEBUG\` | No | Log original/rewritten args (\`true\`, \`1\`, \`yes\`, \`y\`) |
+
+Rewrites are not supported via environment variables — use a config file if you need them.
+
+### Example (Docker / scripted deployment)
+
+\`\`\`bash
+docker run \\
+  -e FFMPEG_OVER_IP_CLIENT_ADDRESS=192.168.1.100:5050 \\
+  -e FFMPEG_OVER_IP_CLIENT_AUTH_SECRET=my-secret \\
+  -v ./ffmpeg-over-ip-client:/usr/bin/ffmpeg \\
+  your-image
+\`\`\`
+
 ## Config File Search Paths
 
-Config is loaded from the first file found (in order):
+If no explicit path or env var config is used, the first file found wins:
 
-1. \`FFMPEG_OVER_IP_SERVER_CONFIG\` / \`FFMPEG_OVER_IP_CLIENT_CONFIG\` env var
-2. Next to the binary: \`<exe-dir>/ffmpeg-over-ip.{server,client}.jsonc\`
+1. Next to the binary: \`<exe-dir>/ffmpeg-over-ip.{server,client}.jsonc\`
+2. Next to the binary (hidden): \`<exe-dir>/.ffmpeg-over-ip.{server,client}.jsonc\`
 3. \`./ffmpeg-over-ip.{server,client}.jsonc\`
 4. \`./.ffmpeg-over-ip.{server,client}.jsonc\`
 5. \`~/.ffmpeg-over-ip.{server,client}.jsonc\`
@@ -204,37 +258,42 @@ Unix domain sockets work on Linux, macOS, and Windows 10+. The server automatica
     slug: "docker",
     title: "Docker Integration",
     content: `
-You can use ffmpeg-over-ip in Docker environments by mounting the binary and configuration as volumes. This allows containers to use ffmpeg remotely without needing GPU passthrough or other special setup.
+You can use ffmpeg-over-ip in Docker environments by mounting the binary and passing configuration via environment variables. This allows containers to use ffmpeg remotely without needing GPU passthrough or other special setup.
 
 ## Client in Docker
 
-Mount the client binary as \`/usr/bin/ffmpeg\` so your app uses it transparently:
+Mount the client binary as \`/usr/bin/ffmpeg\` and pass config via environment variables:
 
 \`\`\`bash
 docker run \\
+  -e FFMPEG_OVER_IP_CLIENT_ADDRESS=192.168.1.100:5050 \\
+  -e FFMPEG_OVER_IP_CLIENT_AUTH_SECRET=your-secret \\
   -v ./ffmpeg-over-ip-client:/usr/bin/ffmpeg \\
-  -v ./ffmpeg-over-ip.client.jsonc:/etc/ffmpeg-over-ip.client.jsonc \\
   your-image
 \`\`\`
 
-For ffprobe support, add a symlink or a second mount:
+For ffprobe support, add a second mount:
 
 \`\`\`bash
 docker run \\
+  -e FFMPEG_OVER_IP_CLIENT_ADDRESS=192.168.1.100:5050 \\
+  -e FFMPEG_OVER_IP_CLIENT_AUTH_SECRET=your-secret \\
   -v ./ffmpeg-over-ip-client:/usr/bin/ffmpeg \\
   -v ./ffmpeg-over-ip-client:/usr/bin/ffprobe \\
-  -v ./ffmpeg-over-ip.client.jsonc:/etc/ffmpeg-over-ip.client.jsonc \\
   your-image
 \`\`\`
+
+You can also use a config file volume instead of env vars — see [Configuration](/docs/configuration) for details.
 
 ## Server in Docker
 
 \`\`\`bash
 docker run \\
+  -e FFMPEG_OVER_IP_SERVER_ADDRESS=0.0.0.0:5050 \\
+  -e FFMPEG_OVER_IP_SERVER_AUTH_SECRET=your-secret \\
   -v ./ffmpeg-over-ip-server:/usr/bin/ffmpeg-over-ip-server \\
   -v ./ffmpeg:/usr/bin/ffmpeg \\
   -v ./ffprobe:/usr/bin/ffprobe \\
-  -v ./ffmpeg-over-ip.server.jsonc:/etc/ffmpeg-over-ip.server.jsonc \\
   --runtime=nvidia \\
   your-image
 \`\`\`
@@ -245,56 +304,51 @@ All three binaries (\`ffmpeg-over-ip-server\`, \`ffmpeg\`, \`ffprobe\`) must be 
 
 If the server and client run on the same machine (e.g., server on the host, client in a container), use a Unix socket instead of TCP to avoid network overhead and \`host.docker.internal\` configuration:
 
-Server config:
-\`\`\`jsonc
-{
-  "address": "unix:/tmp/ffmpeg-over-ip.sock",
-  "authSecret": "your-secret",
-}
-\`\`\`
+Start the server with a socket address (config file or env var):
 
-Client config:
-\`\`\`jsonc
-{
-  "address": "unix:/tmp/ffmpeg-over-ip.sock",
-  "authSecret": "your-secret",
-}
+\`\`\`bash
+export FFMPEG_OVER_IP_SERVER_ADDRESS=unix:/tmp/ffmpeg-over-ip.sock
+export FFMPEG_OVER_IP_SERVER_AUTH_SECRET=your-secret
+./ffmpeg-over-ip-server
 \`\`\`
 
 Then mount the socket into the container:
 
 \`\`\`bash
 docker run \\
+  -e FFMPEG_OVER_IP_CLIENT_ADDRESS=unix:/tmp/ffmpeg-over-ip.sock \\
+  -e FFMPEG_OVER_IP_CLIENT_AUTH_SECRET=your-secret \\
   -v /tmp/ffmpeg-over-ip.sock:/tmp/ffmpeg-over-ip.sock \\
   -v ./ffmpeg-over-ip-client:/usr/bin/ffmpeg \\
-  -v ./ffmpeg-over-ip.client.jsonc:/etc/ffmpeg-over-ip.client.jsonc \\
   your-image
 \`\`\`
 
 ## Debugging
 
-Enable \`debug\` and \`log\` in the server config to see what commands are being executed and how rewrites are applied:
+Enable debug logging on the server via env vars:
 
-\`\`\`jsonc
-{
-  "address": "0.0.0.0:5050",
-  "authSecret": "your-secret",
-  "log": "stdout",
-  "debug": true,
-  "rewrites": [
-    ["h264_nvenc", "h264_qsv"],
-  ],
-}
+\`\`\`bash
+docker run \\
+  -e FFMPEG_OVER_IP_SERVER_ADDRESS=0.0.0.0:5050 \\
+  -e FFMPEG_OVER_IP_SERVER_AUTH_SECRET=your-secret \\
+  -e FFMPEG_OVER_IP_SERVER_LOG=stdout \\
+  -e FFMPEG_OVER_IP_SERVER_DEBUG=true \\
+  -v ./ffmpeg-over-ip-server:/usr/bin/ffmpeg-over-ip-server \\
+  -v ./ffmpeg:/usr/bin/ffmpeg \\
+  -v ./ffprobe:/usr/bin/ffprobe \\
+  --runtime=nvidia \\
+  your-image
 \`\`\`
 
-For the client, set the log to a file you can tail from inside the container:
+For the client, log to a file you can tail from inside the container:
 
-\`\`\`jsonc
-{
-  "address": "192.168.1.100:5050",
-  "authSecret": "your-secret",
-  "log": "/tmp/ffmpeg-over-ip.client.log",
-}
+\`\`\`bash
+docker run \\
+  -e FFMPEG_OVER_IP_CLIENT_ADDRESS=192.168.1.100:5050 \\
+  -e FFMPEG_OVER_IP_CLIENT_AUTH_SECRET=your-secret \\
+  -e FFMPEG_OVER_IP_CLIENT_LOG=/tmp/ffmpeg-over-ip.client.log \\
+  -v ./ffmpeg-over-ip-client:/usr/bin/ffmpeg \\
+  your-image
 \`\`\`
 
 Then tail it:
@@ -302,6 +356,8 @@ Then tail it:
 \`\`\`bash
 docker exec -it <container> tail -f /tmp/ffmpeg-over-ip.client.log
 \`\`\`
+
+Note: rewrites require a config file — they can't be set via env vars. If you need rewrites alongside env var config, use \`FFMPEG_OVER_IP_SERVER_CONFIG\` to point to a config file instead.
 `,
   },
   {
@@ -386,6 +442,16 @@ v4 supported \`--config\` on both client and server. v5 only supports it on the 
 \`\`\`bash
 FFMPEG_OVER_IP_CLIENT_CONFIG="/path/to/config.jsonc" ffmpeg-over-ip-client ...
 \`\`\`
+
+Alternatively, pass configuration directly via individual environment variables — no config file required:
+
+\`\`\`bash
+FFMPEG_OVER_IP_CLIENT_ADDRESS=192.168.1.100:5050 \\
+FFMPEG_OVER_IP_CLIENT_AUTH_SECRET=your-secret \\
+ffmpeg-over-ip-client ...
+\`\`\`
+
+See [Configuration — Environment Variables](/docs/configuration#environment-variables) for the full list.
 
 ## New Features in v5
 
