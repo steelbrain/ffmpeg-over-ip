@@ -2,12 +2,54 @@
 
 Config files use [JSONC](https://code.visualstudio.com/docs/languages/json#_json-with-comments) format (JSON with `//` comments, `/* */` block comments, and trailing commas).
 
+## Config Resolution Order
+
+Configuration is resolved in this order (first match wins):
+
+1. **Explicit path** — `--config <path>` (server only)
+2. **Config file env var** — `FFMPEG_OVER_IP_SERVER_CONFIG` / `FFMPEG_OVER_IP_CLIENT_CONFIG` pointing to a file
+3. **Individual env vars** — if both `_ADDRESS` and `_AUTH_SECRET` are set (see [Environment Variables](#environment-variables) below)
+4. **File search** — standard paths (see below)
+
+## Environment Variables
+
+If both `ADDRESS` and `AUTH_SECRET` env vars are set (and no `_CONFIG` env var is set), configuration is read entirely from environment variables — no config file is needed.
+
+### Client
+
+| Variable | Required | Description |
+|---|---|---|
+| `FFMPEG_OVER_IP_CLIENT_ADDRESS` | Yes | Server address (`host:port` or `unix:/path`) |
+| `FFMPEG_OVER_IP_CLIENT_AUTH_SECRET` | Yes | HMAC auth secret (must match server) |
+| `FFMPEG_OVER_IP_CLIENT_LOG` | No | Log destination: `stdout`, `stderr`, or file path |
+
+### Server
+
+| Variable | Required | Description |
+|---|---|---|
+| `FFMPEG_OVER_IP_SERVER_ADDRESS` | Yes | Listen address (`host:port` or `unix:/path`) |
+| `FFMPEG_OVER_IP_SERVER_AUTH_SECRET` | Yes | HMAC auth secret (must match client) |
+| `FFMPEG_OVER_IP_SERVER_LOG` | No | Log destination: `stdout`, `stderr`, or file path |
+| `FFMPEG_OVER_IP_SERVER_DEBUG` | No | Log original/rewritten args (`true`, `1`, `yes`, `y`) |
+
+Rewrites are not supported via environment variables — use a config file if you need them.
+
+### Example (Docker / scripted deployment)
+
+```bash
+docker run \
+  -e FFMPEG_OVER_IP_CLIENT_ADDRESS=192.168.1.100:5050 \
+  -e FFMPEG_OVER_IP_CLIENT_AUTH_SECRET=my-secret \
+  -v ./ffmpeg-over-ip-client:/usr/bin/ffmpeg \
+  your-image
+```
+
 ## Config File Search Paths
 
-Config is loaded from the first file found (in order):
+If no explicit path or env var config is used, the first file found wins:
 
-1. `FFMPEG_OVER_IP_SERVER_CONFIG` / `FFMPEG_OVER_IP_CLIENT_CONFIG` env var
-2. Next to the binary: `<exe-dir>/ffmpeg-over-ip.{server,client}.jsonc`
+1. Next to the binary: `<exe-dir>/ffmpeg-over-ip.{server,client}.jsonc`
+2. Next to the binary (hidden): `<exe-dir>/.ffmpeg-over-ip.{server,client}.jsonc`
 3. `./ffmpeg-over-ip.{server,client}.jsonc`
 4. `./.ffmpeg-over-ip.{server,client}.jsonc`
 5. `~/.ffmpeg-over-ip.{server,client}.jsonc`
