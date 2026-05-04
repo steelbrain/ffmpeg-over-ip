@@ -44,8 +44,16 @@ type ClientConfig struct {
 }
 
 // LoadServerConfig loads the server config. If explicitPath is non-empty, it
-// loads from that path directly. Otherwise it searches env var and standard paths.
+// loads from that path directly. Otherwise it checks env vars, then searches
+// standard paths.
 func LoadServerConfig(explicitPath string) (*ServerConfig, error) {
+	// If no explicit path and no _CONFIG env var, try individual env vars
+	if explicitPath == "" && os.Getenv("FFMPEG_OVER_IP_SERVER_CONFIG") == "" {
+		if cfg := serverConfigFromEnv(); cfg != nil {
+			return cfg, nil
+		}
+	}
+
 	data, err := loadConfigBytes(explicitPath, "server")
 	if err != nil {
 		return nil, err
@@ -64,8 +72,16 @@ func LoadServerConfig(explicitPath string) (*ServerConfig, error) {
 }
 
 // LoadClientConfig loads the client config. If explicitPath is non-empty, it
-// loads from that path directly. Otherwise it searches env var and standard paths.
+// loads from that path directly. Otherwise it checks env vars, then searches
+// standard paths.
 func LoadClientConfig(explicitPath string) (*ClientConfig, error) {
+	// If no explicit path and no _CONFIG env var, try individual env vars
+	if explicitPath == "" && os.Getenv("FFMPEG_OVER_IP_CLIENT_CONFIG") == "" {
+		if cfg := clientConfigFromEnv(); cfg != nil {
+			return cfg, nil
+		}
+	}
+
 	data, err := loadConfigBytes(explicitPath, "client")
 	if err != nil {
 		return nil, err
@@ -81,6 +97,48 @@ func LoadClientConfig(explicitPath string) (*ClientConfig, error) {
 		return nil, fmt.Errorf("config: authSecret is required")
 	}
 	return &cfg, nil
+}
+
+// serverConfigFromEnv builds a ServerConfig from individual environment variables.
+// Returns nil unless both ADDRESS and AUTH_SECRET are set.
+func serverConfigFromEnv() *ServerConfig {
+	address := os.Getenv("FFMPEG_OVER_IP_SERVER_ADDRESS")
+	authSecret := os.Getenv("FFMPEG_OVER_IP_SERVER_AUTH_SECRET")
+	if address == "" || authSecret == "" {
+		return nil
+	}
+	return &ServerConfig{
+		Address:    address,
+		AuthSecret: authSecret,
+		Log:        LogValue(os.Getenv("FFMPEG_OVER_IP_SERVER_LOG")),
+		Debug:      parseLaxBool(os.Getenv("FFMPEG_OVER_IP_SERVER_DEBUG")),
+	}
+}
+
+// clientConfigFromEnv builds a ClientConfig from individual environment variables.
+// Returns nil unless both ADDRESS and AUTH_SECRET are set.
+func clientConfigFromEnv() *ClientConfig {
+	address := os.Getenv("FFMPEG_OVER_IP_CLIENT_ADDRESS")
+	authSecret := os.Getenv("FFMPEG_OVER_IP_CLIENT_AUTH_SECRET")
+	if address == "" || authSecret == "" {
+		return nil
+	}
+	return &ClientConfig{
+		Address:    address,
+		AuthSecret: authSecret,
+		Log:        LogValue(os.Getenv("FFMPEG_OVER_IP_CLIENT_LOG")),
+	}
+}
+
+// parseLaxBool parses a boolean string leniently.
+// "true", "1", "yes", "y" (case-insensitive) → true; everything else → false.
+func parseLaxBool(s string) bool {
+	switch strings.ToLower(s) {
+	case "true", "1", "yes", "y":
+		return true
+	default:
+		return false
+	}
 }
 
 func loadConfigBytes(explicitPath, configType string) ([]byte, error) {

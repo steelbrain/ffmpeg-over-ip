@@ -98,6 +98,10 @@ func TestLoadConfigEnvVar(t *testing.T) {
 }
 
 func TestLoadConfigSearchPath(t *testing.T) {
+	t.Setenv("FFMPEG_OVER_IP_SERVER_CONFIG", "")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_ADDRESS", "")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_AUTH_SECRET", "")
+
 	dir := t.TempDir()
 
 	// Write config to the "cwd" search path
@@ -122,8 +126,10 @@ func TestLoadConfigSearchPath(t *testing.T) {
 }
 
 func TestLoadConfigNoFileFound(t *testing.T) {
-	// Clear env var to prevent interference
+	// Clear env vars to prevent interference
 	t.Setenv("FFMPEG_OVER_IP_SERVER_CONFIG", "")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_ADDRESS", "")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_AUTH_SECRET", "")
 
 	// Use a temp dir as cwd where no config exists
 	dir := t.TempDir()
@@ -283,15 +289,17 @@ func TestLoadServerConfigEnvVar(t *testing.T) {
 }
 
 func TestLoadConfigHiddenFile(t *testing.T) {
+	// Clear env vars to prevent interference
+	t.Setenv("FFMPEG_OVER_IP_SERVER_CONFIG", "")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_ADDRESS", "")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_AUTH_SECRET", "")
+
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".ffmpeg-over-ip.server.jsonc")
 	os.WriteFile(path, []byte(`{
 		"address": "hidden:5050",
 		"authSecret": "hidden-secret"
 	}`), 0o644)
-
-	// Clear env var to prevent interference
-	t.Setenv("FFMPEG_OVER_IP_SERVER_CONFIG", "")
 
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -1105,6 +1113,171 @@ func TestServerConfigDebugDefaultFalse(t *testing.T) {
 	}
 	if cfg.Debug {
 		t.Error("Debug = true, want false (should default to false)")
+	}
+}
+
+func TestServerConfigFromEnv(t *testing.T) {
+	t.Setenv("FFMPEG_OVER_IP_SERVER_CONFIG", "")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_ADDRESS", "10.0.0.1:5050")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_AUTH_SECRET", "env-secret")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_LOG", "stderr")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_DEBUG", "yes")
+
+	cfg, err := LoadServerConfig("")
+	if err != nil {
+		t.Fatalf("LoadServerConfig from env failed: %v", err)
+	}
+	if cfg.Address != "10.0.0.1:5050" {
+		t.Errorf("Address = %q, want %q", cfg.Address, "10.0.0.1:5050")
+	}
+	if cfg.AuthSecret != "env-secret" {
+		t.Errorf("AuthSecret = %q, want %q", cfg.AuthSecret, "env-secret")
+	}
+	if cfg.Log != "stderr" {
+		t.Errorf("Log = %q, want %q", cfg.Log, "stderr")
+	}
+	if !cfg.Debug {
+		t.Error("Debug = false, want true")
+	}
+	if cfg.Rewrites != nil {
+		t.Errorf("Rewrites = %v, want nil", cfg.Rewrites)
+	}
+}
+
+func TestClientConfigFromEnv(t *testing.T) {
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_CONFIG", "")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_ADDRESS", "192.168.1.100:5050")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_AUTH_SECRET", "client-env-secret")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_LOG", "/tmp/client.log")
+
+	cfg, err := LoadClientConfig("")
+	if err != nil {
+		t.Fatalf("LoadClientConfig from env failed: %v", err)
+	}
+	if cfg.Address != "192.168.1.100:5050" {
+		t.Errorf("Address = %q, want %q", cfg.Address, "192.168.1.100:5050")
+	}
+	if cfg.AuthSecret != "client-env-secret" {
+		t.Errorf("AuthSecret = %q, want %q", cfg.AuthSecret, "client-env-secret")
+	}
+	if cfg.Log != "/tmp/client.log" {
+		t.Errorf("Log = %q, want %q", cfg.Log, "/tmp/client.log")
+	}
+}
+
+func TestEnvConfigRequiresBothFields(t *testing.T) {
+	// Only ADDRESS set — should fall through to file search (and fail)
+	t.Setenv("FFMPEG_OVER_IP_SERVER_CONFIG", "")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_ADDRESS", "10.0.0.1:5050")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_AUTH_SECRET", "")
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	_, err := LoadServerConfig("")
+	if err == nil {
+		t.Fatal("expected error when only ADDRESS is set (should fall through to file search)")
+	}
+}
+
+func TestEnvConfigRequiresBothFieldsClient(t *testing.T) {
+	// Only AUTH_SECRET set — should fall through to file search (and fail)
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_CONFIG", "")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_ADDRESS", "")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_AUTH_SECRET", "secret-only")
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	_, err := LoadClientConfig("")
+	if err == nil {
+		t.Fatal("expected error when only AUTH_SECRET is set (should fall through to file search)")
+	}
+}
+
+func TestConfigFileEnvTakesPrecedenceOverIndividualEnvVars(t *testing.T) {
+	// _CONFIG env var should take precedence over individual env vars
+	dir := t.TempDir()
+	path := filepath.Join(dir, "priority.jsonc")
+	os.WriteFile(path, []byte(`{
+		"address": "file-wins:5050",
+		"authSecret": "file-secret"
+	}`), 0o644)
+
+	t.Setenv("FFMPEG_OVER_IP_SERVER_CONFIG", path)
+	t.Setenv("FFMPEG_OVER_IP_SERVER_ADDRESS", "env-loses:5050")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_AUTH_SECRET", "env-secret")
+
+	cfg, err := LoadServerConfig("")
+	if err != nil {
+		t.Fatalf("LoadServerConfig failed: %v", err)
+	}
+	if cfg.Address != "file-wins:5050" {
+		t.Errorf("Address = %q, want %q (_CONFIG should take precedence)", cfg.Address, "file-wins:5050")
+	}
+}
+
+func TestExplicitPathTakesPrecedenceOverEnvVars(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "explicit.jsonc")
+	os.WriteFile(path, []byte(`{
+		"address": "explicit-wins:5050",
+		"authSecret": "explicit-secret"
+	}`), 0o644)
+
+	t.Setenv("FFMPEG_OVER_IP_SERVER_CONFIG", "")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_ADDRESS", "env-loses:5050")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_AUTH_SECRET", "env-secret")
+
+	cfg, err := LoadServerConfig(path)
+	if err != nil {
+		t.Fatalf("LoadServerConfig failed: %v", err)
+	}
+	if cfg.Address != "explicit-wins:5050" {
+		t.Errorf("Address = %q, want %q (explicit path should take precedence)", cfg.Address, "explicit-wins:5050")
+	}
+}
+
+func TestServerEnvConfigMinimal(t *testing.T) {
+	// Only required fields, no LOG or DEBUG
+	t.Setenv("FFMPEG_OVER_IP_SERVER_CONFIG", "")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_ADDRESS", "0.0.0.0:9090")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_AUTH_SECRET", "minimal-secret")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_LOG", "")
+	t.Setenv("FFMPEG_OVER_IP_SERVER_DEBUG", "")
+
+	cfg, err := LoadServerConfig("")
+	if err != nil {
+		t.Fatalf("LoadServerConfig from env failed: %v", err)
+	}
+	if cfg.Address != "0.0.0.0:9090" {
+		t.Errorf("Address = %q, want %q", cfg.Address, "0.0.0.0:9090")
+	}
+	if cfg.Log != "" {
+		t.Errorf("Log = %q, want empty", cfg.Log)
+	}
+	if cfg.Debug {
+		t.Error("Debug = true, want false")
+	}
+}
+
+func TestParseLaxBool(t *testing.T) {
+	trueCases := []string{"true", "True", "TRUE", "1", "yes", "Yes", "YES", "y", "Y"}
+	for _, s := range trueCases {
+		if !parseLaxBool(s) {
+			t.Errorf("parseLaxBool(%q) = false, want true", s)
+		}
+	}
+
+	falseCases := []string{"", "false", "0", "no", "n", "nope", "anything"}
+	for _, s := range falseCases {
+		if parseLaxBool(s) {
+			t.Errorf("parseLaxBool(%q) = true, want false", s)
+		}
 	}
 }
 

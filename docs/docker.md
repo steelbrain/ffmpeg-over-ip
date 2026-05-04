@@ -1,36 +1,41 @@
 # Docker Integration
 
-You can use ffmpeg-over-ip in Docker environments by mounting the binary and configuration as volumes. This allows containers to use ffmpeg remotely without needing GPU passthrough or other special setup.
+You can use ffmpeg-over-ip in Docker environments by mounting the binary and passing configuration via environment variables. This allows containers to use ffmpeg remotely without needing GPU passthrough or other special setup.
 
 ## Client in Docker
 
-Mount the client binary as `/usr/bin/ffmpeg` so your app uses it transparently:
+Mount the client binary as `/usr/bin/ffmpeg` and pass config via environment variables:
 
 ```bash
 docker run \
+  -e FFMPEG_OVER_IP_CLIENT_ADDRESS=192.168.1.100:5050 \
+  -e FFMPEG_OVER_IP_CLIENT_AUTH_SECRET=your-secret \
   -v ./ffmpeg-over-ip-client:/usr/bin/ffmpeg \
-  -v ./ffmpeg-over-ip.client.jsonc:/etc/ffmpeg-over-ip.client.jsonc \
   your-image
 ```
 
-For ffprobe support, add a symlink or a second mount:
+For ffprobe support, add a second mount:
 
 ```bash
 docker run \
+  -e FFMPEG_OVER_IP_CLIENT_ADDRESS=192.168.1.100:5050 \
+  -e FFMPEG_OVER_IP_CLIENT_AUTH_SECRET=your-secret \
   -v ./ffmpeg-over-ip-client:/usr/bin/ffmpeg \
   -v ./ffmpeg-over-ip-client:/usr/bin/ffprobe \
-  -v ./ffmpeg-over-ip.client.jsonc:/etc/ffmpeg-over-ip.client.jsonc \
   your-image
 ```
+
+You can also use a config file volume instead of env vars — see [Configuration](configuration.md) for details.
 
 ## Server in Docker
 
 ```bash
 docker run \
+  -e FFMPEG_OVER_IP_SERVER_ADDRESS=0.0.0.0:5050 \
+  -e FFMPEG_OVER_IP_SERVER_AUTH_SECRET=your-secret \
   -v ./ffmpeg-over-ip-server:/usr/bin/ffmpeg-over-ip-server \
   -v ./ffmpeg:/usr/bin/ffmpeg \
   -v ./ffprobe:/usr/bin/ffprobe \
-  -v ./ffmpeg-over-ip.server.jsonc:/etc/ffmpeg-over-ip.server.jsonc \
   --runtime=nvidia \
   your-image
 ```
@@ -41,56 +46,51 @@ All three binaries (`ffmpeg-over-ip-server`, `ffmpeg`, `ffprobe`) must be in the
 
 If the server and client run on the same machine (e.g., server on the host, client in a container), use a Unix socket instead of TCP to avoid network overhead and `host.docker.internal` configuration:
 
-Server config:
-```jsonc
-{
-  "address": "unix:/tmp/ffmpeg-over-ip.sock",
-  "authSecret": "your-secret",
-}
-```
+Start the server with a socket address (config file or env var):
 
-Client config:
-```jsonc
-{
-  "address": "unix:/tmp/ffmpeg-over-ip.sock",
-  "authSecret": "your-secret",
-}
+```bash
+export FFMPEG_OVER_IP_SERVER_ADDRESS=unix:/tmp/ffmpeg-over-ip.sock
+export FFMPEG_OVER_IP_SERVER_AUTH_SECRET=your-secret
+./ffmpeg-over-ip-server
 ```
 
 Then mount the socket into the container:
 
 ```bash
 docker run \
+  -e FFMPEG_OVER_IP_CLIENT_ADDRESS=unix:/tmp/ffmpeg-over-ip.sock \
+  -e FFMPEG_OVER_IP_CLIENT_AUTH_SECRET=your-secret \
   -v /tmp/ffmpeg-over-ip.sock:/tmp/ffmpeg-over-ip.sock \
   -v ./ffmpeg-over-ip-client:/usr/bin/ffmpeg \
-  -v ./ffmpeg-over-ip.client.jsonc:/etc/ffmpeg-over-ip.client.jsonc \
   your-image
 ```
 
 ## Debugging
 
-Enable `debug` and `log` in the server config to see what commands are being executed and how rewrites are applied:
+Enable debug logging on the server via env vars:
 
-```jsonc
-{
-  "address": "0.0.0.0:5050",
-  "authSecret": "your-secret",
-  "log": "stdout",
-  "debug": true,
-  "rewrites": [
-    ["h264_nvenc", "h264_qsv"],
-  ],
-}
+```bash
+docker run \
+  -e FFMPEG_OVER_IP_SERVER_ADDRESS=0.0.0.0:5050 \
+  -e FFMPEG_OVER_IP_SERVER_AUTH_SECRET=your-secret \
+  -e FFMPEG_OVER_IP_SERVER_LOG=stdout \
+  -e FFMPEG_OVER_IP_SERVER_DEBUG=true \
+  -v ./ffmpeg-over-ip-server:/usr/bin/ffmpeg-over-ip-server \
+  -v ./ffmpeg:/usr/bin/ffmpeg \
+  -v ./ffprobe:/usr/bin/ffprobe \
+  --runtime=nvidia \
+  your-image
 ```
 
-For the client, set the log to a file you can tail from inside the container:
+For the client, log to a file you can tail from inside the container:
 
-```jsonc
-{
-  "address": "192.168.1.100:5050",
-  "authSecret": "your-secret",
-  "log": "/tmp/ffmpeg-over-ip.client.log",
-}
+```bash
+docker run \
+  -e FFMPEG_OVER_IP_CLIENT_ADDRESS=192.168.1.100:5050 \
+  -e FFMPEG_OVER_IP_CLIENT_AUTH_SECRET=your-secret \
+  -e FFMPEG_OVER_IP_CLIENT_LOG=/tmp/ffmpeg-over-ip.client.log \
+  -v ./ffmpeg-over-ip-client:/usr/bin/ffmpeg \
+  your-image
 ```
 
 Then tail it:
@@ -98,3 +98,5 @@ Then tail it:
 ```bash
 docker exec -it <container> tail -f /tmp/ffmpeg-over-ip.client.log
 ```
+
+Note: rewrites require a config file — they can't be set via env vars. If you need rewrites alongside env var config, use `FFMPEG_OVER_IP_SERVER_CONFIG` to point to a config file instead.

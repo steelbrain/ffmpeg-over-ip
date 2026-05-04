@@ -60,3 +60,15 @@ Test the connection by running a command through the client:
 ```
 
 You should see the server's ffmpeg version and build info. If you get a connection error, double-check the address, port, and auth secret.
+
+## Alternative: Environment Variables
+
+Instead of config files, you can pass configuration via environment variables. This is useful for Docker and scripted deployments:
+
+```bash
+export FFMPEG_OVER_IP_SERVER_ADDRESS=0.0.0.0:5050
+export FFMPEG_OVER_IP_SERVER_AUTH_SECRET=pick-a-strong-secret
+./ffmpeg-over-ip-server
+```
+
+See [Configuration](configuration.md#environment-variables) for all supported variables.
