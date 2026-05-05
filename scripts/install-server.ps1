@@ -15,9 +15,9 @@ $Config = "ffmpeg-over-ip.$Role.jsonc"
 
 # --- Platform detection -----------------------------------------------------
 
-$archEnum = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
-if ($archEnum -ne 'X64') {
-    throw "Unsupported architecture: $archEnum. Only Windows x64 builds are published."
+# Gate on OS bitness, not process bitness — we never execute the downloaded binary here.
+if (-not [Environment]::Is64BitOperatingSystem) {
+    throw "Unsupported operating system: 32-bit Windows. Only 64-bit Windows is supported."
 }
 $Platform = 'windows-amd64'
 
