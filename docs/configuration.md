@@ -22,6 +22,8 @@ If both `ADDRESS` and `AUTH_SECRET` env vars are set (and no `_CONFIG` env var i
 | `FFMPEG_OVER_IP_CLIENT_ADDRESS` | Yes | Server address (`host:port` or `unix:/path`) |
 | `FFMPEG_OVER_IP_CLIENT_AUTH_SECRET` | Yes | HMAC auth secret (must match server) |
 | `FFMPEG_OVER_IP_CLIENT_LOG` | No | Log destination: `stdout`, `stderr`, or file path |
+| `FFMPEG_OVER_IP_CLIENT_FALLBACK_TO_LOCAL` | No | Run local ffmpeg if the server is unreachable (`true`, `1`, `yes`, `y`) |
+| `FFMPEG_OVER_IP_CLIENT_DEBUG` | No | Log original/rewritten args when fallback runs (`true`, `1`, `yes`, `y`) |
 
 ### Server
 
@@ -32,7 +34,7 @@ If both `ADDRESS` and `AUTH_SECRET` env vars are set (and no `_CONFIG` env var i
 | `FFMPEG_OVER_IP_SERVER_LOG` | No | Log destination: `stdout`, `stderr`, or file path |
 | `FFMPEG_OVER_IP_SERVER_DEBUG` | No | Log original/rewritten args (`true`, `1`, `yes`, `y`) |
 
-Rewrites are not supported via environment variables — use a config file if you need them.
+Rewrites (server `rewrites` and client `fallbackRewrites`) are not supported via environment variables — use a config file if you need them.
 
 ### Example (Docker / scripted deployment)
 
@@ -95,6 +97,14 @@ The server looks for `ffmpeg` and `ffprobe` in the same directory as its own bin
   "authSecret": "your-secret-here",
   // Optional: see "Log" section below
   "log": "/tmp/ffmpeg-over-ip.log",
+  // Optional: see "Fallback to local ffmpeg" section below (default: false)
+  "fallbackToLocal": true,
+  // Optional: rewrites applied only when running the local fallback
+  "fallbackRewrites": [
+    ["h264_nvenc", "h264_qsv"],
+  ],
+  // Optional: log original and rewritten args when fallback runs (default: false)
+  "debug": true,
 }
 ```
 
@@ -111,6 +121,38 @@ mklink ffprobe.exe ffmpeg-over-ip-client.exe
 ```
 
 Any name containing "ffprobe" works — `ffprobe`, `my-ffprobe`, `ffprobe-remote`, etc.
+
+## Fallback to local ffmpeg
+
+When `fallbackToLocal` is enabled, the client runs the host's own `ffmpeg` (or `ffprobe`) directly if it can't connect to the server. This keeps transcoding working when the GPU machine is offline — useful for media servers like Jellyfin where any transcoder is better than none.
+
+```jsonc
+{
+  "fallbackToLocal": true,
+  // Optional: rewrites applied to argv before exec'ing the local ffmpeg.
+  // Same format and semantics as server "rewrites" — useful for swapping
+  // codecs that the local hardware can't handle (e.g., NVENC -> QSV).
+  "fallbackRewrites": [
+    ["h264_nvenc", "h264_qsv"],
+  ],
+}
+```
+
+Behavior:
+
+- Only triggered when the initial TCP connection to the server fails. Once a session is established, mid-stream errors are still fatal — we don't restart a partial transcode locally.
+- `ffmpeg` vs `ffprobe` is selected by the client's argv[0] basename, exactly like the non-fallback path. A binary named `ffprobe` (or any name containing `ffprobe`) looks for `ffprobe` on PATH; everything else looks for `ffmpeg`.
+- The local binary is located by searching `$PATH`. On Windows the bare name is tried first (so MSYS / Git-Bash shims named simply `ffmpeg` resolve), then each `%PATHEXT%` extension. The client always skips its own executable, so it's safe to install the client as `ffmpeg` on `$PATH` without recursing.
+- `FFMPEG_OVER_IP_*` env vars are stripped from the local ffmpeg's environment so the auth secret doesn't leak into `/proc/<pid>/environ`.
+- Empty and `.` entries in `$PATH` are skipped (cwd-on-PATH is a known foot-gun).
+- If no local binary is found, the client exits with code 1 and the diagnostic is written to the configured `log` sink. Logging is disabled by default — enable `"log": "stderr"` (or a file path) if you want to see fallback events.
+
+Security notes:
+
+- Enabling `fallbackToLocal` means anyone who can write a file named `ffmpeg` to a directory earlier in `$PATH` than the real binary can hijack transcodes. Only enable on hosts where you trust `$PATH`.
+- On Windows, `%PATHEXT%` is searched in its declared order (default `.COM;.EXE;...`), so a malicious `ffmpeg.com` would be picked up before `ffmpeg.exe`. Same caveat: trust your `$PATH`.
+- A non-root user with write access to any directory in root's `$PATH` can hijack transcodes that root invokes. Audit `$PATH` directory permissions when running the client as root.
+- All fallback diagnostics go to the configured `log` sink, not to ffmpeg's stdout/stderr (the client is an invisible proxy). To debug fallback in production where stderr is consumed by Jellyfin or another media server, set `log` to a file path.
 
 ## Rewrites
 

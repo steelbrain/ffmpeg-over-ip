@@ -1333,3 +1333,157 @@ func TestParseAddress(t *testing.T) {
 	}
 }
 
+func TestClientConfigFallbackFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fallback.jsonc")
+	os.WriteFile(path, []byte(`{
+		"address": "192.168.1.100:5050",
+		"authSecret": "secret",
+		"fallbackToLocal": true,
+		"fallbackRewrites": [
+			["h264_qsv", "h264_nvenc"],
+			["hevc_qsv", "hevc_nvenc"]
+		]
+	}`), 0o644)
+
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig failed: %v", err)
+	}
+	if !cfg.FallbackToLocal {
+		t.Error("FallbackToLocal = false, want true")
+	}
+	if len(cfg.FallbackRewrites) != 2 {
+		t.Fatalf("len(FallbackRewrites) = %d, want 2", len(cfg.FallbackRewrites))
+	}
+	expected := [][2]string{
+		{"h264_qsv", "h264_nvenc"},
+		{"hevc_qsv", "hevc_nvenc"},
+	}
+	for i, pair := range expected {
+		if cfg.FallbackRewrites[i] != pair {
+			t.Errorf("FallbackRewrites[%d] = %v, want %v", i, cfg.FallbackRewrites[i], pair)
+		}
+	}
+}
+
+func TestClientConfigFallbackDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "no-fallback.jsonc")
+	os.WriteFile(path, []byte(`{
+		"address": "192.168.1.100:5050",
+		"authSecret": "secret"
+	}`), 0o644)
+
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig failed: %v", err)
+	}
+	if cfg.FallbackToLocal {
+		t.Error("FallbackToLocal = true, want false (default)")
+	}
+	if cfg.FallbackRewrites != nil {
+		t.Errorf("FallbackRewrites = %v, want nil (default)", cfg.FallbackRewrites)
+	}
+}
+
+func TestClientConfigFallbackToLocalFromEnv(t *testing.T) {
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_CONFIG", "")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_ADDRESS", "192.168.1.100:5050")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_AUTH_SECRET", "client-env-secret")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_FALLBACK_TO_LOCAL", "true")
+
+	cfg, err := LoadClientConfig("")
+	if err != nil {
+		t.Fatalf("LoadClientConfig from env failed: %v", err)
+	}
+	if !cfg.FallbackToLocal {
+		t.Error("FallbackToLocal = false, want true")
+	}
+	if cfg.FallbackRewrites != nil {
+		t.Errorf("FallbackRewrites = %v, want nil (env should never populate rewrites)", cfg.FallbackRewrites)
+	}
+}
+
+func TestClientConfigFallbackToLocalFromEnvLaxBool(t *testing.T) {
+	cases := []struct {
+		val  string
+		want bool
+	}{
+		{"true", true},
+		{"yes", true},
+		{"1", true},
+		{"y", true},
+		{"YES", true},
+		{"false", false},
+		{"no", false},
+		{"", false},
+		{"anything", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.val, func(t *testing.T) {
+			t.Setenv("FFMPEG_OVER_IP_CLIENT_CONFIG", "")
+			t.Setenv("FFMPEG_OVER_IP_CLIENT_ADDRESS", "192.168.1.100:5050")
+			t.Setenv("FFMPEG_OVER_IP_CLIENT_AUTH_SECRET", "secret")
+			t.Setenv("FFMPEG_OVER_IP_CLIENT_FALLBACK_TO_LOCAL", tc.val)
+
+			cfg, err := LoadClientConfig("")
+			if err != nil {
+				t.Fatalf("LoadClientConfig failed: %v", err)
+			}
+			if cfg.FallbackToLocal != tc.want {
+				t.Errorf("FallbackToLocal = %v, want %v (for env value %q)", cfg.FallbackToLocal, tc.want, tc.val)
+			}
+		})
+	}
+}
+
+func TestClientConfigDebugFromEnv(t *testing.T) {
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_CONFIG", "")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_ADDRESS", "192.168.1.100:5050")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_AUTH_SECRET", "secret")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_DEBUG", "yes")
+
+	cfg, err := LoadClientConfig("")
+	if err != nil {
+		t.Fatalf("LoadClientConfig from env failed: %v", err)
+	}
+	if !cfg.Debug {
+		t.Error("Debug = false, want true")
+	}
+}
+
+func TestClientConfigDebugFromFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "debug.jsonc")
+	os.WriteFile(path, []byte(`{
+		"address": "192.168.1.100:5050",
+		"authSecret": "secret",
+		"debug": true
+	}`), 0o644)
+
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig failed: %v", err)
+	}
+	if !cfg.Debug {
+		t.Error("Debug = false, want true")
+	}
+}
+
+func TestClientConfigFallbackRewritesNotInEnv(t *testing.T) {
+	// Even if a user tried to set "fallback rewrites" via env, there's no env
+	// var for it — confirm rewrites stay nil and only file config can set them.
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_CONFIG", "")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_ADDRESS", "192.168.1.100:5050")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_AUTH_SECRET", "secret")
+	t.Setenv("FFMPEG_OVER_IP_CLIENT_FALLBACK_REWRITES", "h264_qsv=h264_nvenc")
+
+	cfg, err := LoadClientConfig("")
+	if err != nil {
+		t.Fatalf("LoadClientConfig failed: %v", err)
+	}
+	if cfg.FallbackRewrites != nil {
+		t.Errorf("FallbackRewrites = %v, want nil (rewrites must not be settable via env)", cfg.FallbackRewrites)
+	}
+}

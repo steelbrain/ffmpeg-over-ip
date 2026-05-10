@@ -55,10 +55,19 @@ func main() {
 
 	config.SetupLogging(cfg.Log)
 
-	// Connect to server
+	// Connect to server. Fallback only triggers on dial failure — once a
+	// connection is established, mid-stream errors stay fatal so we don't
+	// restart a partial transcode locally.
 	network, addr := config.ParseAddress(cfg.Address)
 	conn, err := net.Dial(network, addr)
 	if err != nil {
+		if cfg.FallbackToLocal {
+			deps, derr := realFallbackDeps()
+			if derr != nil {
+				log.Fatalf("fallback: %v", derr)
+			}
+			os.Exit(runLocalFallback(deps, program, args, cfg.FallbackRewrites, cfg.Debug, err, addr))
+		}
 		log.Fatalf("failed to connect to %s: %v", addr, err)
 	}
 	defer conn.Close()

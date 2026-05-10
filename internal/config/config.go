@@ -38,9 +38,12 @@ type ServerConfig struct {
 }
 
 type ClientConfig struct {
-	Log        LogValue `json:"log"`
-	Address    string   `json:"address"`
-	AuthSecret string   `json:"authSecret"`
+	Log              LogValue    `json:"log"`
+	Address          string      `json:"address"`
+	AuthSecret       string      `json:"authSecret"`
+	FallbackToLocal  bool        `json:"fallbackToLocal"`
+	FallbackRewrites [][2]string `json:"fallbackRewrites"`
+	Debug            bool        `json:"debug"`
 }
 
 // LoadServerConfig loads the server config. If explicitPath is non-empty, it
@@ -124,9 +127,11 @@ func clientConfigFromEnv() *ClientConfig {
 		return nil
 	}
 	return &ClientConfig{
-		Address:    address,
-		AuthSecret: authSecret,
-		Log:        LogValue(os.Getenv("FFMPEG_OVER_IP_CLIENT_LOG")),
+		Address:         address,
+		AuthSecret:      authSecret,
+		Log:             LogValue(os.Getenv("FFMPEG_OVER_IP_CLIENT_LOG")),
+		FallbackToLocal: parseLaxBool(os.Getenv("FFMPEG_OVER_IP_CLIENT_FALLBACK_TO_LOCAL")),
+		Debug:           parseLaxBool(os.Getenv("FFMPEG_OVER_IP_CLIENT_DEBUG")),
 	}
 }
 

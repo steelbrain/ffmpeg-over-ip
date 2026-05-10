@@ -28,7 +28,28 @@ jobs:
         run: go build ./...
 
       - name: Test
-        run: go test ./internal/... -race -count=1 -timeout 120s
+        run: go test ./internal/... ./cmd/... -race -count=1 -timeout 120s
+
+  go-tests-windows:
+    name: Go Tests (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build
+        run: go build ./...
+
+      # Exercises Windows-specific fallback paths (PATHEXT iteration, case-
+      # insensitive self-skip, ExitCode mapping) that the macOS/Linux runners
+      # can't cover. Omit -race here: the Linux job already runs the same
+      # tests under the race detector, and skipping it on Windows keeps the
+      # job fast.
+      - name: Test
+        run: go test ./internal/... ./cmd/... -count=1 -timeout 120s
 
   fio-unit-tests:
     name: fio Unit Tests

@@ -9,13 +9,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/steelbrain/ffmpeg-over-ip/internal/auth"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/config"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/process"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/protocol"
+	"github.com/steelbrain/ffmpeg-over-ip/internal/rewrite"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/session"
 )
 
@@ -130,7 +130,7 @@ func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConf
 	}
 
 	// Apply rewrites
-	args := applyRewrites(cmd.Args, cfg.Rewrites)
+	args := rewrite.Apply(cmd.Args, cfg.Rewrites)
 
 	if cfg.Debug {
 		log.Printf("[debug] original args: %v", cmd.Args)
@@ -153,20 +153,6 @@ func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConf
 	}
 
 	log.Printf("process exited with code %d (from %s)", exitCode, conn.RemoteAddr())
-}
-
-func applyRewrites(args []string, rewrites [][2]string) []string {
-	if len(rewrites) == 0 {
-		return args
-	}
-	result := make([]string, len(args))
-	for i, arg := range args {
-		result[i] = arg
-		for _, rw := range rewrites {
-			result[i] = strings.ReplaceAll(result[i], rw[0], rw[1])
-		}
-	}
-	return result
 }
 
 func sendError(conn net.Conn, msg string) {
