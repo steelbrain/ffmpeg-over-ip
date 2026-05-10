@@ -53,7 +53,7 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	config.SetupLogging(cfg.Log)
+	defer config.SetupLogging(cfg.Log)()
 
 	// Connect to server. Fallback only triggers on dial failure — once a
 	// connection is established, mid-stream errors stay fatal so we don't

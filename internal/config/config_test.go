@@ -6,9 +6,33 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// setEnvWithMirror sets an env var and, on Windows, also mirrors it to the
+// vars that os.UserHomeDir / os.TempDir actually consult there:
+//
+//	HOME    → USERPROFILE
+//	TMPDIR  → TMP and TEMP
+//
+// Without this, t.Setenv("HOME", ...) is a no-op on Windows because
+// os.UserHomeDir reads USERPROFILE first. Same idea for TMPDIR.
+func setEnvWithMirror(t *testing.T, key, value string) {
+	t.Helper()
+	t.Setenv(key, value)
+	if runtime.GOOS != "windows" {
+		return
+	}
+	switch key {
+	case "HOME":
+		t.Setenv("USERPROFILE", value)
+	case "TMPDIR":
+		t.Setenv("TMP", value)
+		t.Setenv("TEMP", value)
+	}
+}
 
 func TestLoadServerConfig(t *testing.T) {
 	dir := t.TempDir()
@@ -487,6 +511,14 @@ func TestLoadClientConfigWithLog(t *testing.T) {
 }
 
 func TestLoadConfigUnreadableFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// Windows file permissions are ACL-based, not POSIX bit-based;
+		// os.Chmod(path, 0o000) clears the read-only attribute but doesn't
+		// actually deny read access to the owning user, so the file remains
+		// readable. Simulating an unreadable file portably here would require
+		// real ACL manipulation, which is beyond what this test is verifying.
+		t.Skip("os.Chmod 0o000 does not deny read on Windows")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "unreadable.jsonc")
 	os.WriteFile(path, []byte(`{"address":"x:1","authSecret":"s"}`), 0o644)
@@ -681,11 +713,12 @@ func TestSetupLoggingFilePath(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "test.log")
 
-	SetupLogging(LogValue(logPath))
+	closeLog := SetupLogging(LogValue(logPath))
 	log.Print("file-log-message")
-
-	// Force flush by switching output
-	log.SetOutput(os.Stderr)
+	// Close the file before reading it back so Windows can release the
+	// handle (otherwise t.TempDir cleanup fails on Windows where you can't
+	// delete an open file).
+	closeLog()
 
 	data, err := os.ReadFile(logPath)
 	if err != nil {
@@ -705,9 +738,9 @@ func TestSetupLoggingFileAppends(t *testing.T) {
 	// Write initial content
 	os.WriteFile(logPath, []byte("existing\n"), 0644)
 
-	SetupLogging(LogValue(logPath))
+	closeLog := SetupLogging(LogValue(logPath))
 	log.Print("appended-message")
-	log.SetOutput(os.Stderr)
+	closeLog()
 
 	data, err := os.ReadFile(logPath)
 	if err != nil {
@@ -779,11 +812,11 @@ func TestSetupLoggingTMPDIR(t *testing.T) {
 	defer log.SetOutput(os.Stderr)
 
 	dir := t.TempDir()
-	t.Setenv("TMPDIR", dir)
+	setEnvWithMirror(t, "TMPDIR", dir)
 
-	SetupLogging(LogValue("$TMPDIR/tmpdir-test.log"))
+	closeLog := SetupLogging(LogValue("$TMPDIR/tmpdir-test.log"))
 	log.Print("tmpdir-message")
-	log.SetOutput(os.Stderr)
+	closeLog()
 
 	logPath := filepath.Join(dir, "tmpdir-test.log")
 	data, err := os.ReadFile(logPath)
@@ -799,11 +832,11 @@ func TestSetupLoggingHOME(t *testing.T) {
 	defer log.SetOutput(os.Stderr)
 
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	setEnvWithMirror(t, "HOME", dir)
 
-	SetupLogging(LogValue("$HOME/home-test.log"))
+	closeLog := SetupLogging(LogValue("$HOME/home-test.log"))
 	log.Print("home-message")
-	log.SetOutput(os.Stderr)
+	closeLog()
 
 	logPath := filepath.Join(dir, "home-test.log")
 	data, err := os.ReadFile(logPath)
@@ -1068,10 +1101,22 @@ func TestExpandLogVars(t *testing.T) {
 		},
 	}
 
+	// One subtest depends on the Linux default for os.TempDir() ("/tmp")
+	// when TMPDIR is unset; on Windows the system temp lives elsewhere
+	// (typically C:\Users\<user>\AppData\Local\Temp). Skip that single
+	// case rather than skip the whole suite, since the substitution logic
+	// itself is platform-agnostic and benefits from Windows coverage.
+	skipOnWindows := map[string]bool{
+		"TMPDIR env empty falls back to /tmp": true,
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if runtime.GOOS == "windows" && skipOnWindows[tt.name] {
+				t.Skipf("Linux-default temp path; %s on Windows", os.TempDir())
+			}
 			for k, v := range tt.envs {
-				t.Setenv(k, v)
+				setEnvWithMirror(t, k, v)
 			}
 			got := expandLogVars(tt.input)
 			if got != tt.want {

@@ -287,8 +287,17 @@ func TestFstat(t *testing.T) {
 	if fr.FileSize != 5 {
 		t.Fatalf("expected size 5, got %d", fr.FileSize)
 	}
-	if fr.Mode&0o777 != 0o644 {
-		t.Fatalf("expected mode 0644, got 0%o", fr.Mode&0o777)
+	// Compare against what os.Stat reports for the same file rather than a
+	// hardcoded mode. Windows synthesizes file modes from file attributes
+	// (regular writable file → 0o666, read-only → 0o444) and ignores the
+	// group/other bits we passed to WriteFile, so 0o644 only holds on Unix.
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("os.Stat: %v", err)
+	}
+	wantMode := uint32(info.Mode().Perm())
+	if fr.Mode&0o777 != wantMode {
+		t.Fatalf("expected mode 0%o (from os.Stat), got 0%o", wantMode, fr.Mode&0o777)
 	}
 }
 

@@ -5,6 +5,10 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +17,37 @@ import (
 	"github.com/steelbrain/ffmpeg-over-ip/internal/config"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/protocol"
 )
+
+// buildEchoStub compiles a minimal cross-platform `echo` clone into the
+// test's temp dir and returns its path. It prints argv (excluding argv[0])
+// joined by spaces, then exits 0. Used in place of /bin/echo, which doesn't
+// exist on Windows.
+func buildEchoStub(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	bin := filepath.Join(dir, "echo-stub")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	const code = `package main
+import (
+	"fmt"
+	"os"
+	"strings"
+)
+func main() {
+	fmt.Println(strings.Join(os.Args[1:], " "))
+}
+`
+	if err := os.WriteFile(src, []byte(code), 0o644); err != nil {
+		t.Fatalf("write stub source: %v", err)
+	}
+	if out, err := exec.Command("go", "build", "-o", bin, src).CombinedOutput(); err != nil {
+		t.Fatalf("go build echo stub: %v: %s", err, out)
+	}
+	return bin
+}
 
 func TestSendError(t *testing.T) {
 	client, server := net.Pipe()
@@ -221,7 +256,8 @@ func TestHandleConnectionSuccess(t *testing.T) {
 	secret := "test-secret"
 	cfg := &config.ServerConfig{AuthSecret: secret}
 
-	go handleConnection(ctx, serverConn, cfg, "/bin/echo", "/bin/echo")
+	echoBin := buildEchoStub(t)
+	go handleConnection(ctx, serverConn, cfg, echoBin, echoBin)
 
 	// Send a valid command that runs "echo -version" (echo will just print "-version")
 	payload := makeCommandPayload(secret, protocol.ProgramFFmpeg, []string{"-version"})

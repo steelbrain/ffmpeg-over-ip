@@ -206,7 +206,12 @@ func searchPaths(configType string) []string {
 // SetupLogging configures the global logger based on the log config value.
 // Supported values: "stdout", "stderr", "" / false (discard), or a file path.
 // File paths support $TMPDIR, $HOME, and $USER interpolation.
-func SetupLogging(logValue LogValue) {
+//
+// Returns a cleanup func that releases any underlying file handle and
+// re-routes log output to io.Discard. For non-file sinks it's a no-op.
+// Callers should defer it on shutdown so the file handle isn't leaked
+// across reloads (and so Windows can delete temp log dirs in tests).
+func SetupLogging(logValue LogValue) func() {
 	switch logValue {
 	case "stdout":
 		log.SetOutput(os.Stdout)
@@ -219,15 +224,20 @@ func SetupLogging(logValue LogValue) {
 		dir := filepath.Dir(path)
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 			fmt.Fprintf(os.Stderr, "log directory %s does not exist, logging to stderr\n", dir)
-			return
+			return func() {}
 		}
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cannot open log file %s: %v, logging to stderr\n", path, err)
-			return
+			return func() {}
 		}
 		log.SetOutput(f)
+		return func() {
+			log.SetOutput(io.Discard)
+			f.Close()
+		}
 	}
+	return func() {}
 }
 
 // expandLogVars expands allow-listed environment variables in a log path.

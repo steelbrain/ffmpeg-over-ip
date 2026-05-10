@@ -13,6 +13,18 @@ import (
 	"time"
 )
 
+// TestMain skips the whole package on Windows. The tests below depend on
+// Unix shell utilities (echo, sh, cat, sleep) and POSIX signal semantics
+// (TestSignalSIGUSR1 lives in process_signal_unix_test.go). The production
+// code in process.go is cross-platform and is exercised on Windows via
+// release-build smoke tests and integration tests.
+func TestMain(m *testing.M) {
+	if runtime.GOOS == "windows" {
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
 // readAsync starts reading from r in a goroutine and returns a function
 // that blocks until the read completes, returning the data and error.
 // This avoids a race where cmd.Wait() closes pipes before ReadAll starts.
@@ -288,26 +300,6 @@ func TestSignalNotStarted(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when signaling a process that was never started")
 	}
-}
-
-func TestSignalSIGUSR1(t *testing.T) {
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		t.Skip("signal tests only on unix")
-	}
-
-	proc := NewProcess("sleep", []string{"3600"})
-	if err := proc.Start(context.Background()); err != nil {
-		t.Fatalf("Start failed: %v", err)
-	}
-
-	time.Sleep(100 * time.Millisecond)
-
-	if err := proc.Signal(syscall.SIGUSR1); err != nil {
-		t.Fatalf("Signal(SIGUSR1) returned error: %v", err)
-	}
-
-	proc.Terminate()
-	proc.Wait()
 }
 
 func TestWaitMultipleCalls(t *testing.T) {

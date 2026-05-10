@@ -36,7 +36,7 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	config.SetupLogging(cfg.Log)
+	defer config.SetupLogging(cfg.Log)()
 
 	// Resolve ffmpeg/ffprobe paths from server binary's directory
 	exePath, err := os.Executable()

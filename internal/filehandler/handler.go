@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -318,6 +319,12 @@ func wireToWhence(w uint8) (int, error) {
 }
 
 // mapErrno translates a Go error to a canonical wire errno value.
+//
+// We try the POSIX syscall.Errno match first to preserve fine-grained
+// distinctions (EPERM vs EACCES, etc.) on Unix, then fall back to the
+// cross-platform fs sentinels — those catch Windows error codes (e.g.,
+// ERROR_FILE_NOT_FOUND, ERROR_ALREADY_EXISTS, ERROR_ACCESS_DENIED) that
+// don't share numeric values with POSIX errnos.
 func mapErrno(err error) int32 {
 	var errno syscall.Errno
 	if errors.As(err, &errno) {
@@ -345,6 +352,16 @@ func mapErrno(err error) int32 {
 		case syscall.ERANGE:
 			return protocol.FioERANGE
 		}
+	}
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return protocol.FioENOENT
+	case errors.Is(err, fs.ErrExist):
+		return protocol.FioEEXIST
+	case errors.Is(err, fs.ErrPermission):
+		return protocol.FioEACCES
+	case errors.Is(err, fs.ErrInvalid):
+		return protocol.FioEINVAL
 	}
 	return protocol.FioEIO
 }
