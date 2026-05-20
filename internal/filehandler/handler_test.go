@@ -455,8 +455,13 @@ func TestMkdirNested(t *testing.T) {
 func TestOpenNonExistent(t *testing.T) {
 	h := NewHandler()
 
+	// Use a non-existent file inside an existing temp dir. A purely fictional
+	// path like "/nonexistent/path/xyz" produces ERROR_BAD_UNIT (20) on Windows,
+	// which collides numerically with POSIX ENOTDIR — testing ENOENT mapping
+	// shouldn't depend on that resolution quirk.
+	missing := filepath.Join(t.TempDir(), "does-not-exist.txt")
 	rt, rp := dispatch(t, h, protocol.MsgOpen, (&protocol.OpenRequest{
-		RequestID: 1, FileID: 1, Flags: protocol.FioORDONLY, Path: "/nonexistent/path/xyz",
+		RequestID: 1, FileID: 1, Flags: protocol.FioORDONLY, Path: missing,
 	}).Encode())
 	if rt != protocol.MsgIoError {
 		t.Fatalf("expected MsgIoError, got 0x%02x", rt)
@@ -804,8 +809,12 @@ func TestFtruncateInvalidFileID(t *testing.T) {
 func TestUnlinkNonExistent(t *testing.T) {
 	h := NewHandler()
 
+	// Same reasoning as TestOpenNonExistent: use a non-existent file inside an
+	// existing temp dir so Windows produces ERROR_FILE_NOT_FOUND, not the
+	// path-resolution edge case ERROR_BAD_UNIT.
+	missing := filepath.Join(t.TempDir(), "does-not-exist.txt")
 	rt, rp := dispatch(t, h, protocol.MsgUnlink, (&protocol.UnlinkRequest{
-		RequestID: 1, Path: "/nonexistent/path/xyz.txt",
+		RequestID: 1, Path: missing,
 	}).Encode())
 	if rt != protocol.MsgIoError {
 		t.Fatalf("expected MsgIoError, got 0x%02x", rt)

@@ -1118,9 +1118,19 @@ func TestExpandLogVars(t *testing.T) {
 			for k, v := range tt.envs {
 				setEnvWithMirror(t, k, v)
 			}
+			want := tt.want
+			// On Windows, os.TempDir() returns the value canonicalized by
+			// Win32 GetTempPath (e.g., "/tmp" → "D:\tmp"). Substitute that
+			// canonical form into want so we verify the substitution logic
+			// rather than re-checking OS path normalization.
+			if runtime.GOOS == "windows" {
+				if v, ok := tt.envs["TMPDIR"]; ok && v != "" {
+					want = strings.ReplaceAll(want, v, os.TempDir())
+				}
+			}
 			got := expandLogVars(tt.input)
-			if got != tt.want {
-				t.Errorf("expandLogVars(%q) = %q, want %q", tt.input, got, tt.want)
+			if got != want {
+				t.Errorf("expandLogVars(%q) = %q, want %q", tt.input, got, want)
 			}
 		})
 	}
