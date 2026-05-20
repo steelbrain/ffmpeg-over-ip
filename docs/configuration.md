@@ -22,8 +22,8 @@ If both `ADDRESS` and `AUTH_SECRET` env vars are set (and no `_CONFIG` env var i
 | `FFMPEG_OVER_IP_CLIENT_ADDRESS` | Yes | Server address (`host:port` or `unix:/path`) |
 | `FFMPEG_OVER_IP_CLIENT_AUTH_SECRET` | Yes | HMAC auth secret (must match server) |
 | `FFMPEG_OVER_IP_CLIENT_LOG` | No | Log destination: `stdout`, `stderr`, or file path |
-| `FFMPEG_OVER_IP_CLIENT_FALLBACK_TO_LOCAL` | No | Run local ffmpeg if the server is unreachable (`true`, `1`, `yes`, `y`) |
-| `FFMPEG_OVER_IP_CLIENT_DEBUG` | No | Log original/rewritten args when fallback runs (`true`, `1`, `yes`, `y`) |
+| `FFMPEG_OVER_IP_CLIENT_FALLBACK_TO_LOCAL` | No | Run local ffmpeg if the server is unreachable (`true`, `1`, `yes`, `y` — case-insensitive) |
+| `FFMPEG_OVER_IP_CLIENT_DEBUG` | No | Log original/rewritten args when fallback runs (`true`, `1`, `yes`, `y` — case-insensitive) |
 
 ### Server
 
@@ -32,7 +32,7 @@ If both `ADDRESS` and `AUTH_SECRET` env vars are set (and no `_CONFIG` env var i
 | `FFMPEG_OVER_IP_SERVER_ADDRESS` | Yes | Listen address (`host:port` or `unix:/path`) |
 | `FFMPEG_OVER_IP_SERVER_AUTH_SECRET` | Yes | HMAC auth secret (must match client) |
 | `FFMPEG_OVER_IP_SERVER_LOG` | No | Log destination: `stdout`, `stderr`, or file path |
-| `FFMPEG_OVER_IP_SERVER_DEBUG` | No | Log original/rewritten args (`true`, `1`, `yes`, `y`) |
+| `FFMPEG_OVER_IP_SERVER_DEBUG` | No | Log original/rewritten args (`true`, `1`, `yes`, `y` — case-insensitive) |
 
 Rewrites (server `rewrites` and client `fallbackRewrites`) are not supported via environment variables — use a config file if you need them.
 
@@ -61,7 +61,7 @@ If no explicit path or env var config is used, the first file found wins:
 
 The server also accepts `--config <path>`.
 
-On Windows, `~` is your user directory (e.g., `C:\Users\<you>`). Paths 7 and 8 don't apply — use the binary directory, current directory, or an environment variable instead.
+On Windows, `~` is your user directory (e.g., `C:\Users\<you>`). The `/etc/...` and `/usr/local/etc/...` paths are still searched but won't exist on a stock install — use the binary directory, current directory, or an environment variable instead.
 
 To see which paths are searched on your system, run:
 
@@ -74,7 +74,9 @@ ffmpeg-over-ip-client --debug-print-search-paths
 
 ```jsonc
 {
+  // Required: listen address (host:port or unix:/path/to/socket)
   "address": "0.0.0.0:5050",
+  // Required: HMAC auth secret — must match client
   "authSecret": "your-secret-here",
   // Optional: see "Log" section below (default: no logging)
   "log": "stdout",
@@ -93,7 +95,9 @@ The server looks for `ffmpeg` and `ffprobe` in the same directory as its own bin
 
 ```jsonc
 {
+  // Required: server address (host:port or unix:/path/to/socket)
   "address": "192.168.1.100:5050",
+  // Required: HMAC auth secret — must match server
   "authSecret": "your-secret-here",
   // Optional: see "Log" section below
   "log": "/tmp/ffmpeg-over-ip.log",
@@ -156,7 +160,7 @@ Security notes:
 
 ## Rewrites
 
-Rewrites let the server substitute strings in ffmpeg arguments before running the command. This is useful when the client requests a codec the server doesn't have — for example, the client asks for `h264_nvenc` but the server has Intel QSV instead of NVIDIA.
+Rewrites let the server substitute argv elements in ffmpeg arguments before running the command. This is useful when the client requests a codec the server doesn't have — for example, the client asks for `h264_nvenc` but the server has Intel QSV instead of NVIDIA.
 
 ```jsonc
 {
@@ -167,7 +171,29 @@ Rewrites let the server substitute strings in ffmpeg arguments before running th
 }
 ```
 
-Each pair `["from", "to"]` does a plain string replacement across all ffmpeg arguments. In the example above, any argument containing `h264_nvenc` is rewritten to `h264_qsv`.
+Each pair `["find", "replace"]` matches whole argv elements — not substrings within them. The example above rewrites any argv element exactly equal to `h264_nvenc` to `h264_qsv`. An element like `h264_nvenc_extra` would not match.
+
+`find` and `replace` are each split on whitespace, so a single rewrite can match a consecutive run of argv elements and substitute a run of different length:
+
+```jsonc
+{
+  "rewrites": [
+    // Swap a two-element run (-hwaccel qsv) for a different two-element run.
+    ["-hwaccel qsv", "-hwaccel cuda"],
+
+    // Expand a two-element run into a four-element run.
+    ["-hwaccel qsv", "-hwaccel cuda -hwaccel_output_format cuda"],
+
+    // Remove a one-element argv entry entirely (empty replacement).
+    ["-nostdin", ""],
+
+    // Remove a two-element run.
+    ["-preset veryfast", ""],
+  ],
+}
+```
+
+Rewrites are applied in declared order, so a later rewrite can match tokens produced by an earlier one. The same rewrite is applied to every matching run in argv, not just the first.
 
 Enable `"debug": true` to log original and rewritten arguments for each command.
 

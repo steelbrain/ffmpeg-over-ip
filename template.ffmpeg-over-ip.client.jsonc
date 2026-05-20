@@ -17,6 +17,31 @@
   // "address": "server.example.com:5050"           // Connect to a remote server
   // "address": "unix:/tmp/ffmpeg-over-ip.sock"     // Connect using Unix socket
 
-  "authSecret": "YOUR-CLIENT-PASSWORD-HERE" // type: string
+  "authSecret": "YOUR-CLIENT-PASSWORD-HERE", // type: string
   // ^ This MUST match what you have in the server
+
+  // Optional: when true, fall back to running the host's local ffmpeg
+  // (looked up on $PATH) if the server is unreachable. Useful for media
+  // servers like Jellyfin where any transcoder is better than none.
+  // Defaults to false.
+  "fallbackToLocal": false, // type: boolean
+
+  // Optional: rewrites applied to argv before exec'ing the local ffmpeg
+  // when "fallbackToLocal" is enabled and the server is unreachable.
+  // Same format and semantics as the server's "rewrites": ["find", "replace"]
+  // matches whole argv elements, and both find and replace are split on
+  // whitespace so a single rewrite can match or expand a run of elements.
+  "fallbackRewrites": [
+    // Swap one argv element for another (single-token):
+    // ["h264_nvenc", "h264_qsv"],
+
+    // Swap a two-element run (multi-token):
+    // ["-hwaccel cuda", "-hwaccel qsv"],
+
+    // Expand a two-element run into a four-element run:
+    // ["-hwaccel qsv", "-hwaccel cuda -hwaccel_output_format cuda"],
+
+    // Remove an argv element (empty replacement):
+    // ["-nostdin", ""],
+  ]
 }

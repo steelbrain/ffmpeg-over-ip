@@ -24,8 +24,21 @@
   // ^ When set to true, original and rewritten args will be logged for each command
   // This is useful for troubleshooting ffmpeg commands and rewrites
 
-  // Optional: rewrite codec names in ffmpeg arguments
+  // Optional: rewrite argv elements in ffmpeg arguments before exec.
+  // ["find", "replace"] matches whole argv elements (not substrings).
+  // Both find and replace are split on whitespace, so a single rewrite
+  // can match or expand a run of argv elements.
   "rewrites": [
-    ["libfdk_aac", "aac"]
+    // Swap one argv element for another (single-token):
+    // ["libfdk_aac", "aac"],
+
+    // Swap a two-element run (multi-token):
+    // ["-hwaccel qsv", "-hwaccel cuda"],
+
+    // Expand a two-element run into a four-element run:
+    // ["-hwaccel qsv", "-hwaccel cuda -hwaccel_output_format cuda"],
+
+    // Remove an argv element (empty replacement):
+    // ["-nostdin", ""],
   ]
 }
