@@ -84,7 +84,7 @@
 /* Sequential read-ahead. This cuts request/response round trips for readers
  * like FFmpeg's AVIO layer that commonly pull 32 KiB at a time. */
 #define FIO_INITIAL_READAHEAD_BYTES  (512 * 1024)
-#define FIO_SMALL_FILE_READAHEAD_BYTES FIO_INITIAL_READAHEAD_BYTES
+#define FIO_SMALL_FILE_READAHEAD_BYTES (1280 * 1024)
 #define FIO_DEFAULT_READAHEAD_BYTES  (2 * 1024 * 1024)
 #define FIO_MAX_READAHEAD_BYTES      (16 * 1024 * 1024)
 #define FIO_LARGE_FILE_THRESHOLD     (1024LL * 1024LL * 1024LL)
