@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
@@ -10,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
 	"syscall"
 
@@ -35,6 +35,54 @@ type stats struct {
 	readRespBytes uint64
 	readRespZero  uint64
 	ioErrors      uint64
+
+	files        map[uint16]*fileStats
+	pendingOpens map[uint16]pendingOpen
+	pendingReads map[uint16]pendingRead
+	pendingSeeks map[uint16]pendingSeek
+}
+
+type fileStats struct {
+	offset    int64
+	size      int64
+	intervals []readInterval
+}
+
+type readInterval struct {
+	start int64
+	end   int64
+}
+
+type pendingOpen struct {
+	fileID uint16
+}
+
+type pendingRead struct {
+	fileID    uint16
+	start     int64
+	requested uint32
+}
+
+type pendingSeek struct {
+	fileID uint16
+}
+
+func newStats() *stats {
+	return &stats{
+		files:        make(map[uint16]*fileStats),
+		pendingOpens: make(map[uint16]pendingOpen),
+		pendingReads: make(map[uint16]pendingRead),
+		pendingSeeks: make(map[uint16]pendingSeek),
+	}
+}
+
+func (s *stats) file(fileID uint16) *fileStats {
+	file := s.files[fileID]
+	if file == nil {
+		file = &fileStats{size: -1}
+		s.files[fileID] = file
+	}
+	return file
 }
 
 func (s *stats) observeServerToClient(msg *protocol.Message) {
@@ -44,10 +92,25 @@ func (s *stats) observeServerToClient(msg *protocol.Message) {
 	switch msg.Type {
 	case protocol.MsgOpen:
 		s.openRequests++
+		if req, err := protocol.DecodeOpenRequest(msg.Payload); err == nil {
+			s.pendingOpens[req.RequestID] = pendingOpen{fileID: req.FileID}
+			file := s.file(req.FileID)
+			file.offset = 0
+			file.size = -1
+		}
 	case protocol.MsgRead:
 		s.readRequests++
-		if len(msg.Payload) >= 8 {
-			n := binary.BigEndian.Uint32(msg.Payload[4:])
+		if req, err := protocol.DecodeReadRequest(msg.Payload); err == nil {
+			file := s.file(req.FileID)
+			start := file.offset
+			file.offset += int64(req.NBytes)
+			s.pendingReads[req.RequestID] = pendingRead{
+				fileID:    req.FileID,
+				start:     start,
+				requested: req.NBytes,
+			}
+
+			n := req.NBytes
 			s.readReqBytes += uint64(n)
 			if s.readReqMin == 0 || n < s.readReqMin {
 				s.readReqMin = n
@@ -66,6 +129,9 @@ func (s *stats) observeServerToClient(msg *protocol.Message) {
 		}
 	case protocol.MsgSeek:
 		s.seekRequests++
+		if req, err := protocol.DecodeSeekRequest(msg.Payload); err == nil {
+			s.pendingSeeks[req.RequestID] = pendingSeek{fileID: req.FileID}
+		}
 	case protocol.MsgFstat:
 		s.fstatRequests++
 	case protocol.MsgClose:
@@ -78,6 +144,14 @@ func (s *stats) observeClientToServer(msg *protocol.Message) {
 	defer s.mu.Unlock()
 
 	switch msg.Type {
+	case protocol.MsgOpenOk:
+		if resp, err := protocol.DecodeOpenOkResponse(msg.Payload); err == nil {
+			if pending, ok := s.pendingOpens[resp.RequestID]; ok {
+				file := s.file(pending.fileID)
+				file.size = resp.FileSize
+				delete(s.pendingOpens, resp.RequestID)
+			}
+		}
 	case protocol.MsgReadOk:
 		s.readResponses++
 		if len(msg.Payload) >= 2 {
@@ -85,6 +159,30 @@ func (s *stats) observeClientToServer(msg *protocol.Message) {
 			s.readRespBytes += n
 			if n == 0 {
 				s.readRespZero++
+			}
+			resp, err := protocol.DecodeReadOkResponse(msg.Payload)
+			if err == nil {
+				if pending, ok := s.pendingReads[resp.RequestID]; ok {
+					file := s.file(pending.fileID)
+					dataLen := int64(len(resp.Data))
+					if dataLen > 0 {
+						file.intervals = append(file.intervals, readInterval{
+							start: pending.start,
+							end:   pending.start + dataLen,
+						})
+					}
+					if file.offset == pending.start+int64(pending.requested) {
+						file.offset = pending.start + dataLen
+					}
+					delete(s.pendingReads, resp.RequestID)
+				}
+			}
+		}
+	case protocol.MsgSeekOk:
+		if resp, err := protocol.DecodeSeekOkResponse(msg.Payload); err == nil {
+			if pending, ok := s.pendingSeeks[resp.RequestID]; ok {
+				s.file(pending.fileID).offset = resp.Offset
+				delete(s.pendingSeeks, resp.RequestID)
 			}
 		}
 	case protocol.MsgIoError:
@@ -95,6 +193,12 @@ func (s *stats) observeClientToServer(msg *protocol.Message) {
 func (s *stats) write(path string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	uniqueReadBytes := uniqueBytes(s.files)
+	redundantReadBytes := uint64(0)
+	if s.readRespBytes > uniqueReadBytes {
+		redundantReadBytes = s.readRespBytes - uniqueReadBytes
+	}
 
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "open_requests=%d\n", s.openRequests)
@@ -110,6 +214,8 @@ func (s *stats) write(path string) {
 	fmt.Fprintf(&out, "close_requests=%d\n", s.closeRequests)
 	fmt.Fprintf(&out, "read_responses=%d\n", s.readResponses)
 	fmt.Fprintf(&out, "read_response_bytes=%d\n", s.readRespBytes)
+	fmt.Fprintf(&out, "read_unique_bytes=%d\n", uniqueReadBytes)
+	fmt.Fprintf(&out, "read_redundant_bytes=%d\n", redundantReadBytes)
 	fmt.Fprintf(&out, "read_response_zero=%d\n", s.readRespZero)
 	fmt.Fprintf(&out, "io_errors=%d\n", s.ioErrors)
 
@@ -121,6 +227,42 @@ func (s *stats) write(path string) {
 	if err := os.Rename(tmp, path); err != nil {
 		log.Printf("failed to publish stats: %v", err)
 	}
+}
+
+func uniqueBytes(files map[uint16]*fileStats) uint64 {
+	var intervals []readInterval
+	for _, file := range files {
+		intervals = append(intervals, file.intervals...)
+	}
+	if len(intervals) == 0 {
+		return 0
+	}
+	sort.Slice(intervals, func(i, j int) bool {
+		if intervals[i].start == intervals[j].start {
+			return intervals[i].end < intervals[j].end
+		}
+		return intervals[i].start < intervals[j].start
+	})
+
+	var total uint64
+	current := intervals[0]
+	for _, interval := range intervals[1:] {
+		if interval.end <= interval.start {
+			continue
+		}
+		if interval.start <= current.end {
+			if interval.end > current.end {
+				current.end = interval.end
+			}
+			continue
+		}
+		total += uint64(current.end - current.start)
+		current = interval
+	}
+	if current.end > current.start {
+		total += uint64(current.end - current.start)
+	}
+	return total
 }
 
 func forward(src net.Conn, dst net.Conn, observe func(*protocol.Message)) {
@@ -184,7 +326,7 @@ func main() {
 	}
 	defer listener.Close()
 
-	var s stats
+	s := newStats()
 	s.write(*statsPath)
 
 	sigCh := make(chan os.Signal, 1)
@@ -203,6 +345,6 @@ func main() {
 			log.Printf("accept error: %v", err)
 			continue
 		}
-		go handle(client, *targetAddr, &s, *statsPath)
+		go handle(client, *targetAddr, s, *statsPath)
 	}
 }

@@ -212,6 +212,8 @@ if [ "$BENCH_PROTOCOL_STATS" = "1" ] && [ -s "$STATS_FILE" ]; then
 	READ_REQUEST_GT_32K=$(stat_value read_request_gt_32768)
 	READ_RESPONSES=$(stat_value read_responses)
 	READ_RESPONSE_BYTES=$(stat_value read_response_bytes)
+	READ_UNIQUE_BYTES=$(stat_value read_unique_bytes)
+	READ_REDUNDANT_BYTES=$(stat_value read_redundant_bytes)
 	READ_RESPONSE_ZERO=$(stat_value read_response_zero)
 	SEEK_REQUESTS=$(stat_value seek_requests)
 	FSTAT_REQUESTS=$(stat_value fstat_requests)
@@ -221,6 +223,8 @@ if [ "$BENCH_PROTOCOL_STATS" = "1" ] && [ -s "$STATS_FILE" ]; then
 	AVG_RESPONSE_BYTES=$(awk -v bytes="$READ_RESPONSE_BYTES" -v count="$READ_RESPONSES" 'BEGIN { if (count > 0) printf "%.0f", bytes / count; else printf "0" }')
 	READS_PER_SEC=$(awk -v count="$READ_REQUESTS" -v seconds="$OVER_IP_SECONDS" 'BEGIN { if (seconds > 0) printf "%.0f", count / seconds; else printf "0" }')
 	RESPONSE_MIB=$(awk -v bytes="$READ_RESPONSE_BYTES" 'BEGIN { printf "%.2f", bytes / 1048576 }')
+	UNIQUE_MIB=$(awk -v bytes="$READ_UNIQUE_BYTES" 'BEGIN { printf "%.2f", bytes / 1048576 }')
+	REDUNDANT_MIB=$(awk -v bytes="$READ_REDUNDANT_BYTES" 'BEGIN { printf "%.2f", bytes / 1048576 }')
 
 	echo ""
 	echo "Protocol read stats:"
@@ -228,6 +232,7 @@ if [ "$BENCH_PROTOCOL_STATS" = "1" ] && [ -s "$STATS_FILE" ]; then
 	echo "  requested bytes:    $READ_REQUEST_BYTES total, $AVG_REQUEST_BYTES avg, min=$READ_REQUEST_MIN, max=$READ_REQUEST_MAX"
 	echo "  32 KiB requests:    $READ_REQUEST_32K exact, $READ_REQUEST_LT_32K smaller, $READ_REQUEST_GT_32K larger"
 	echo "  read responses:     $READ_RESPONSES, $RESPONSE_MIB MiB returned, $AVG_RESPONSE_BYTES avg, $READ_RESPONSE_ZERO empty"
+	echo "  unique/redundant:   $UNIQUE_MIB MiB unique, $REDUNDANT_MIB MiB redundant"
 	echo "  seeks/fstats/errors: $SEEK_REQUESTS seeks, $FSTAT_REQUESTS fstats, $IO_ERRORS I/O errors"
 else
 	echo ""
