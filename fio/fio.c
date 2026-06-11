@@ -88,6 +88,9 @@
 #define FIO_DEFAULT_READAHEAD_BYTES  (2 * 1024 * 1024)
 #define FIO_MAX_READAHEAD_BYTES      (16 * 1024 * 1024)
 #define FIO_LARGE_FILE_THRESHOLD     (1024LL * 1024LL * 1024LL)
+#define FIO_RANGE_CACHE_FILE_LIMIT_BYTES (256LL * 1024LL * 1024LL)
+#define FIO_RANGE_CACHE_MAX_BYTES        (256U * 1024U * 1024U)
+#define FIO_SMALL_FILE_PREFETCH_PERCENT 50
 
 /* ======================================================================
  * Big-endian helpers (manual byte assembly, no htonl)
@@ -136,6 +139,14 @@ static inline uint64_t get_u64(const uint8_t *buf) {
  * B. Global State
  * ====================================================================== */
 
+typedef struct fio_cache_block {
+    int64_t  start;
+    uint8_t *payload;
+    uint32_t data_offset;
+    uint32_t len;
+    struct fio_cache_block *next;
+} fio_cache_block_t;
+
 typedef struct {
     int      active;
     uint16_t file_id;
@@ -147,6 +158,8 @@ typedef struct {
     uint8_t *read_cache;
     uint32_t read_cache_data_offset;
     uint32_t read_cache_len;
+    fio_cache_block_t *range_cache;
+    uint32_t range_cache_bytes;
     uint32_t read_ahead_bytes;
     int      prefetch_slot;
     int64_t  prefetch_start;
@@ -172,6 +185,7 @@ static struct {
     pthread_cond_t    dispatch_cond;
     uint32_t          read_ahead_bytes;
     int               read_ahead_explicit;
+    uint32_t          range_cache_max_bytes;
     fio_vfd_t         vfds[FIO_MAX_FILES];
     fio_pending_t     pending[FIO_MAX_PENDING];
     pthread_t         reader_thread;
@@ -856,6 +870,8 @@ static int vfd_alloc(uint16_t file_id, int64_t initial_size) {
             fio_state.vfds[i].read_cache       = NULL;
             fio_state.vfds[i].read_cache_data_offset = 0;
             fio_state.vfds[i].read_cache_len   = 0;
+            fio_state.vfds[i].range_cache      = NULL;
+            fio_state.vfds[i].range_cache_bytes = 0;
             fio_state.vfds[i].read_ahead_bytes = vfd_initial_read_ahead();
             fio_state.vfds[i].prefetch_slot    = -1;
             fio_state.vfds[i].prefetch_start   = 0;
@@ -932,6 +948,95 @@ static void vfd_invalidate_read_cache(fio_vfd_t *vfd) {
     vfd->read_cache_data_offset = 0;
     vfd->read_cache_len = 0;
     vfd->read_cache_start = vfd->logical_offset;
+
+    fio_cache_block_t *block = vfd->range_cache;
+    while (block) {
+        fio_cache_block_t *next = block->next;
+        free(block->payload);
+        free(block);
+        block = next;
+    }
+    vfd->range_cache = NULL;
+    vfd->range_cache_bytes = 0;
+}
+
+static int vfd_should_retain_read_cache(fio_vfd_t *vfd) {
+    uint32_t accmode = vfd->wire_flags & 0x0003;
+    return accmode == FIO_O_RDONLY &&
+           !vfd->dirty &&
+           fio_state.range_cache_max_bytes > 0 &&
+           vfd->cached_size >= 0 &&
+           vfd->cached_size <= FIO_RANGE_CACHE_FILE_LIMIT_BYTES;
+}
+
+static int vfd_range_cache_covers(fio_vfd_t *vfd, int64_t start, uint32_t len) {
+    if (len == 0) return 1;
+    int64_t end = start + (int64_t)len;
+    if (vfd->read_cache && start >= vfd->read_cache_start &&
+        end <= vfd->read_cache_start + (int64_t)vfd->read_cache_len) {
+        return 1;
+    }
+    for (fio_cache_block_t *block = vfd->range_cache; block; block = block->next) {
+        if (start >= block->start && end <= block->start + (int64_t)block->len) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void vfd_evict_range_cache(fio_vfd_t *vfd) {
+    while (vfd->range_cache && vfd->range_cache_bytes > fio_state.range_cache_max_bytes) {
+        fio_cache_block_t *prev = NULL;
+        fio_cache_block_t *block = vfd->range_cache;
+        while (block->next) {
+            prev = block;
+            block = block->next;
+        }
+
+        if (prev) {
+            prev->next = NULL;
+        } else {
+            vfd->range_cache = NULL;
+        }
+        vfd->range_cache_bytes -= block->len;
+        free(block->payload);
+        free(block);
+    }
+}
+
+static int vfd_add_range_cache(fio_vfd_t *vfd, int64_t start, uint8_t *payload,
+                               uint32_t data_offset, uint32_t len) {
+    if (!payload || len == 0) return 0;
+    if (!vfd_should_retain_read_cache(vfd)) return 0;
+    if (vfd_range_cache_covers(vfd, start, len)) return 0;
+
+    fio_cache_block_t *block = malloc(sizeof(*block));
+    if (!block) return 0;
+    block->start = start;
+    block->payload = payload;
+    block->data_offset = data_offset;
+    block->len = len;
+    block->next = vfd->range_cache;
+    vfd->range_cache = block;
+    vfd->range_cache_bytes += len;
+    vfd_evict_range_cache(vfd);
+    return 1;
+}
+
+static void vfd_retain_or_free_active_read_cache(fio_vfd_t *vfd) {
+    uint8_t *payload = vfd->read_cache;
+    int64_t start = vfd->read_cache_start;
+    uint32_t data_offset = vfd->read_cache_data_offset;
+    uint32_t len = vfd->read_cache_len;
+
+    vfd->read_cache = NULL;
+    vfd->read_cache_data_offset = 0;
+    vfd->read_cache_len = 0;
+    vfd->read_cache_start = vfd->logical_offset;
+
+    if (!vfd_add_range_cache(vfd, start, payload, data_offset, len)) {
+        free(payload);
+    }
 }
 
 static void vfd_cancel_prefetch(fio_vfd_t *vfd);
@@ -947,21 +1052,72 @@ static void vfd_free(int fd) {
 }
 
 static int vfd_cache_contains(fio_vfd_t *vfd, int64_t offset) {
-    if (!vfd->read_cache || vfd->read_cache_len == 0) return 0;
-    int64_t cache_end = vfd->read_cache_start + (int64_t)vfd->read_cache_len;
-    return offset >= vfd->read_cache_start && offset < cache_end;
+    if (vfd->read_cache && vfd->read_cache_len > 0) {
+        int64_t cache_end = vfd->read_cache_start + (int64_t)vfd->read_cache_len;
+        if (offset >= vfd->read_cache_start && offset < cache_end) return 1;
+    }
+    for (fio_cache_block_t *block = vfd->range_cache; block; block = block->next) {
+        int64_t cache_end = block->start + (int64_t)block->len;
+        if (offset >= block->start && offset < cache_end) return 1;
+    }
+    return 0;
+}
+
+static int vfd_promote_range_cache_block(fio_vfd_t *vfd, fio_cache_block_t *prev,
+                                         fio_cache_block_t *block) {
+    if (!block) return 0;
+
+    if (prev) {
+        prev->next = block->next;
+    } else {
+        vfd->range_cache = block->next;
+    }
+    vfd->range_cache_bytes -= block->len;
+
+    uint8_t *payload = block->payload;
+    int64_t start = block->start;
+    uint32_t data_offset = block->data_offset;
+    uint32_t len = block->len;
+    free(block);
+
+    vfd_retain_or_free_active_read_cache(vfd);
+    vfd->read_cache = payload;
+    vfd->read_cache_data_offset = data_offset;
+    vfd->read_cache_start = start;
+    vfd->read_cache_len = len;
+    return 1;
 }
 
 static ssize_t vfd_copy_from_cache(fio_vfd_t *vfd, void *buf, size_t count) {
-    if (!vfd_cache_contains(vfd, vfd->logical_offset)) return 0;
+retry_active:
+    if (vfd->read_cache && vfd->read_cache_len > 0) {
+        int64_t cache_end = vfd->read_cache_start + (int64_t)vfd->read_cache_len;
+        if (vfd->logical_offset >= vfd->read_cache_start && vfd->logical_offset < cache_end) {
+            int64_t cache_offset = vfd->logical_offset - vfd->read_cache_start;
+            uint32_t available = vfd->read_cache_len - (uint32_t)cache_offset;
+            size_t to_copy = count < (size_t)available ? count : (size_t)available;
 
-    int64_t cache_offset = vfd->logical_offset - vfd->read_cache_start;
-    uint32_t available = vfd->read_cache_len - (uint32_t)cache_offset;
-    size_t to_copy = count < (size_t)available ? count : (size_t)available;
+            memcpy(buf, vfd->read_cache + vfd->read_cache_data_offset + cache_offset, to_copy);
+            vfd->logical_offset += (int64_t)to_copy;
+            return (ssize_t)to_copy;
+        }
+    }
 
-    memcpy(buf, vfd->read_cache + vfd->read_cache_data_offset + cache_offset, to_copy);
-    vfd->logical_offset += (int64_t)to_copy;
-    return (ssize_t)to_copy;
+    fio_cache_block_t *prev = NULL;
+    for (fio_cache_block_t *block = vfd->range_cache; block; block = block->next) {
+        int64_t cache_end = block->start + (int64_t)block->len;
+        if (vfd->logical_offset < block->start || vfd->logical_offset >= cache_end) {
+            prev = block;
+            continue;
+        }
+
+        if (vfd_promote_range_cache_block(vfd, prev, block)) {
+            goto retry_active;
+        }
+        break;
+    }
+
+    return 0;
 }
 
 static void vfd_update_after_prefetch_response(fio_vfd_t *vfd, uint32_t data_len) {
@@ -984,6 +1140,11 @@ static void vfd_cancel_prefetch(fio_vfd_t *vfd) {
                            fio_state.pending[slot].resp_len, &(uint16_t){0},
                            &data, &data_len) == 0) {
             vfd_update_after_prefetch_response(vfd, data_len);
+            if (vfd_add_range_cache(vfd, vfd->prefetch_start,
+                                    fio_state.pending[slot].resp_payload,
+                                    2, data_len)) {
+                fio_state.pending[slot].resp_payload = NULL;
+            }
             synced_remote_offset = 1;
         }
     }
@@ -1022,7 +1183,7 @@ static int vfd_take_prefetch_as_cache(fio_vfd_t *vfd) {
         } else {
             vfd_update_after_prefetch_response(vfd, data_len);
             vfd_grow_read_ahead(vfd);
-            vfd_invalidate_read_cache(vfd);
+            vfd_retain_or_free_active_read_cache(vfd);
             if (data_len > 0) {
                 vfd->read_cache = fio_state.pending[slot].resp_payload;
                 vfd->read_cache_data_offset = 2;
@@ -1056,7 +1217,9 @@ static void vfd_maybe_start_prefetch(fio_vfd_t *vfd) {
     if (vfd->logical_offset < vfd->read_cache_start || vfd->logical_offset > cache_end) return;
     if (vfd->cached_size >= 0 && vfd->cached_size < FIO_LARGE_FILE_THRESHOLD) {
         int64_t cache_offset = vfd->logical_offset - vfd->read_cache_start;
-        if (cache_offset < (int64_t)(vfd->read_cache_len / 2)) return;
+        int64_t trigger_offset =
+            ((int64_t)vfd->read_cache_len * FIO_SMALL_FILE_PREFETCH_PERCENT + 99) / 100;
+        if (cache_offset < trigger_offset) return;
     }
 
     uint32_t request_size = vfd->read_ahead_bytes;
@@ -1149,6 +1312,7 @@ static void fio_init(void) {
     fio_state.next_file_id = 1;
     fio_state.next_req_id = 1;
     fio_state.read_ahead_bytes = FIO_DEFAULT_READAHEAD_BYTES;
+    fio_state.range_cache_max_bytes = FIO_RANGE_CACHE_MAX_BYTES;
     pthread_mutex_init(&fio_state.send_mutex, NULL);
     pthread_mutex_init(&fio_state.dispatch_mutex, NULL);
     pthread_cond_init(&fio_state.dispatch_cond, NULL);
@@ -1167,6 +1331,22 @@ static void fio_init(void) {
         } else {
             fprintf(stderr, "fio: invalid FFOIP_READAHEAD_BYTES=%s, using %u\n",
                     read_ahead_str, fio_state.read_ahead_bytes);
+        }
+    }
+
+    const char *range_cache_str = getenv("FFOIP_RANGE_CACHE_BYTES");
+    if (range_cache_str && range_cache_str[0] != '\0') {
+        char *end = NULL;
+        errno = 0;
+        unsigned long long parsed = strtoull(range_cache_str, &end, 10);
+        if (errno == 0 && end && *end == '\0') {
+            if (parsed > UINT32_MAX) {
+                parsed = UINT32_MAX;
+            }
+            fio_state.range_cache_max_bytes = (uint32_t)parsed;
+        } else {
+            fprintf(stderr, "fio: invalid FFOIP_RANGE_CACHE_BYTES=%s, using %u\n",
+                    range_cache_str, fio_state.range_cache_max_bytes);
         }
     }
 
@@ -1389,7 +1569,7 @@ ssize_t fio_read(int fd, void *buf, size_t count) {
             }
 
             if ((size_t)data_len > count) {
-                vfd_invalidate_read_cache(vfd);
+                vfd_retain_or_free_active_read_cache(vfd);
                 vfd->read_cache = fio_state.pending[slot].resp_payload;
                 vfd->read_cache_data_offset = 2;
                 vfd->read_cache_start = response_start;
@@ -1402,7 +1582,7 @@ ssize_t fio_read(int fd, void *buf, size_t count) {
             } else {
                 memcpy(buf, data, data_len);
                 vfd->logical_offset += (int64_t)data_len;
-                vfd_invalidate_read_cache(vfd);
+                vfd_retain_or_free_active_read_cache(vfd);
                 result = (ssize_t)data_len;
             }
         }
@@ -1534,7 +1714,7 @@ off_t fio_lseek(int fd, off_t offset, int whence) {
         return -1;
     }
     vfd->logical_offset = new_offset;
-    vfd_invalidate_read_cache(vfd);
+    vfd_retain_or_free_active_read_cache(vfd);
     vfd_reset_read_ahead(vfd);
     return (off_t)new_offset;
 }
