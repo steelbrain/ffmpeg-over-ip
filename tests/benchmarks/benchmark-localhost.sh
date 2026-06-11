@@ -97,7 +97,7 @@ if ! kill -0 "$SERVER_PID" 2>/dev/null; then
 fi
 
 if ! FFMPEG_OVER_IP_CLIENT_CONFIG="$READY_CLIENT_CONFIG" \
-	"$BIN_DIR/ffmpeg-over-ip-client" -version >/dev/null 2>"$TMPDIR_TEST/client-ready.log"; then
+	"$BIN_DIR/ffmpeg-over-ip-client" -version </dev/null >/dev/null 2>"$TMPDIR_TEST/client-ready.log"; then
 	echo "FAIL: client could not run ffmpeg -version through the server"
 	cat "$TMPDIR_TEST/client-ready.log"
 	exit 1
@@ -156,7 +156,7 @@ run_timed() {
 	shift 3
 
 	printf "%-18s" "$label"
-	if ! { TIMEFORMAT='%3R'; time "$@" >/dev/null 2>"$log_file"; } 2>"$time_file"; then
+	if ! { TIMEFORMAT='%3R'; time "$@" </dev/null >/dev/null 2>"$log_file"; } 2>"$time_file"; then
 		echo "FAILED"
 		echo "Command failed. Last log lines:"
 		tail -40 "$log_file"
