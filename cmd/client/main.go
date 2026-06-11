@@ -167,6 +167,12 @@ func main() {
 
 		switch {
 		case protocol.IsFileIORequest(msg.Type):
+			if msg.Type == protocol.MsgRead {
+				if err := handler.HandleReadTo(msg.Payload, w); err != nil {
+					log.Printf("file handler error: %v", err)
+				}
+				continue
+			}
 			respType, respPayload, err := handler.HandleMessage(msg.Type, msg.Payload)
 			if err != nil {
 				log.Printf("file handler error: %v", err)

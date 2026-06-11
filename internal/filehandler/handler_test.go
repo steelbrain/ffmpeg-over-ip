@@ -77,6 +77,17 @@ func decodeIoError(t *testing.T, rp []byte) *protocol.IoErrorResponse {
 	return r
 }
 
+type captureWriter struct {
+	msgType uint8
+	payload []byte
+}
+
+func (w *captureWriter) WriteMessage(msgType uint8, payload []byte) error {
+	w.msgType = msgType
+	w.payload = append(w.payload[:0], payload...)
+	return nil
+}
+
 func TestOpenReadClose(t *testing.T) {
 	dir := t.TempDir()
 	content := []byte("hello world")
@@ -116,6 +127,35 @@ func TestOpenReadClose(t *testing.T) {
 	}).Encode())
 	if rt != protocol.MsgCloseOk {
 		t.Fatalf("expected MsgCloseOk, got 0x%02x", rt)
+	}
+}
+
+func TestHandleReadTo(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte("hello reusable read buffer")
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, content, 0o644)
+
+	h := NewHandler()
+	defer h.CloseAll()
+
+	dispatch(t, h, protocol.MsgOpen, (&protocol.OpenRequest{
+		RequestID: 1, FileID: 10, Flags: protocol.FioORDONLY, Path: path,
+	}).Encode())
+
+	var w captureWriter
+	if err := h.HandleReadTo((&protocol.ReadRequest{
+		RequestID: 2, FileID: 10, NBytes: 1024,
+	}).Encode(), &w); err != nil {
+		t.Fatalf("HandleReadTo returned error: %v", err)
+	}
+
+	if w.msgType != protocol.MsgReadOk {
+		t.Fatalf("expected MsgReadOk, got 0x%02x", w.msgType)
+	}
+	rr := decodeReadOk(t, w.payload)
+	if string(rr.Data) != string(content) {
+		t.Fatalf("expected %q, got %q", content, rr.Data)
 	}
 }
 
@@ -914,7 +954,7 @@ func TestMultipleFilesSimultaneous(t *testing.T) {
 		dispatch(t, h, protocol.MsgOpen, (&protocol.OpenRequest{
 			RequestID: uint16(i*10 + 1), FileID: uint16(i + 1),
 			Flags: protocol.FioOWRONLY | protocol.FioOCREAT | protocol.FioOTRUNC,
-			Mode: 0o644, Path: paths[i],
+			Mode:  0o644, Path: paths[i],
 		}).Encode())
 
 		// Write content
@@ -1194,7 +1234,7 @@ func TestHandleMessageConcurrent(t *testing.T) {
 			rt, _ := dispatch(t, h, protocol.MsgOpen, (&protocol.OpenRequest{
 				RequestID: reqBase + 1, FileID: fileID,
 				Flags: protocol.FioOWRONLY | protocol.FioOCREAT | protocol.FioOTRUNC,
-				Mode: 0o644, Path: path,
+				Mode:  0o644, Path: path,
 			}).Encode())
 			if rt != protocol.MsgOpenOk {
 				t.Errorf("goroutine %d: open expected MsgOpenOk, got 0x%02x", id, rt)
