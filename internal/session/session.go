@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -17,6 +18,7 @@ import (
 const (
 	keepaliveSendInterval = 30 * time.Second
 	keepaliveRecvTimeout  = 150 * time.Second
+	maxPayloadLen         = 100 * 1024 * 1024
 )
 
 // Session manages one client connection: multiplexes between the TCP
@@ -29,8 +31,8 @@ type Session struct {
 	lastRecv atomic.Int64
 
 	// loopback is set when fio connects, protected by loopbackMu
-	loopbackMu   sync.Mutex
-	loopback     net.Conn
+	loopbackMu    sync.Mutex
+	loopback      net.Conn
 	loopbackReady chan struct{}
 }
 
@@ -169,38 +171,94 @@ func (s *Session) forwardLoopbackToTCP(ctx context.Context, loopback net.Conn) {
 }
 
 func (s *Session) dispatchTCPMessages(ctx context.Context, cancel context.CancelFunc) {
+	fileResponseCopyBuf := make([]byte, 256*1024)
+
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		msg, err := protocol.ReadMessageFrom(s.conn)
+		msgType, payloadLen, header, err := readMessageHeader(s.conn)
 		if err != nil {
 			return
 		}
 
 		s.lastRecv.Store(time.Now().UnixNano())
 
-		switch {
-		case protocol.IsFileIOResponse(msg.Type):
-			// Wait for loopback to be ready before forwarding
+		if protocol.IsFileIOResponse(msgType) {
 			select {
 			case <-s.loopbackReady:
-				protocol.WriteMessageTo(s.loopback, msg.Type, msg.Payload)
+				if _, err := s.loopback.Write(header[:]); err != nil {
+					return
+				}
+				if err := copyExact(s.loopback, s.conn, int64(payloadLen), fileResponseCopyBuf); err != nil {
+					return
+				}
 			case <-ctx.Done():
 				return
 			}
-		case msg.Type == protocol.MsgStdin:
-			s.proc.Stdin().Write(msg.Payload)
-		case msg.Type == protocol.MsgStdinClose:
+			continue
+		}
+
+		payload, err := readMessagePayload(s.conn, payloadLen)
+		if err != nil {
+			return
+		}
+
+		switch {
+		case msgType == protocol.MsgStdin:
+			s.proc.Stdin().Write(payload)
+		case msgType == protocol.MsgStdinClose:
 			s.proc.Stdin().Close()
-		case msg.Type == protocol.MsgCancel:
+		case msgType == protocol.MsgCancel:
 			go s.proc.Terminate()
-		case msg.Type == protocol.MsgPing:
-			s.w.WriteMessage(protocol.MsgPong, msg.Payload)
+		case msgType == protocol.MsgPing:
+			s.w.WriteMessage(protocol.MsgPong, payload)
 		default:
-			log.Printf("session: unknown message type 0x%02x from client, dropping", msg.Type)
+			log.Printf("session: unknown message type 0x%02x from client, dropping", msgType)
 		}
 	}
+}
+
+func readMessageHeader(r io.Reader) (uint8, uint32, [5]byte, error) {
+	var header [5]byte
+	if _, err := io.ReadFull(r, header[:]); err != nil {
+		if err == io.EOF {
+			return 0, 0, header, err
+		}
+		return 0, 0, header, fmt.Errorf("error reading message header: %w", err)
+	}
+
+	payloadLen := binary.BigEndian.Uint32(header[1:])
+	if payloadLen > maxPayloadLen {
+		return 0, 0, header, fmt.Errorf("payload length too large: %d bytes", payloadLen)
+	}
+
+	return header[0], payloadLen, header, nil
+}
+
+func readMessagePayload(r io.Reader, payloadLen uint32) ([]byte, error) {
+	payload := make([]byte, payloadLen)
+	if payloadLen == 0 {
+		return payload, nil
+	}
+	if _, err := io.ReadFull(r, payload); err != nil {
+		return nil, fmt.Errorf("error reading payload: %w", err)
+	}
+	return payload, nil
+}
+
+func copyExact(dst io.Writer, src io.Reader, n int64, buf []byte) error {
+	if n == 0 {
+		return nil
+	}
+	limited := &io.LimitedReader{R: src, N: n}
+	if _, err := io.CopyBuffer(dst, limited, buf); err != nil {
+		return err
+	}
+	if limited.N != 0 {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
 }
 
 func (s *Session) keepalive(ctx context.Context, cancel context.CancelFunc) {

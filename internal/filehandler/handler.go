@@ -1,6 +1,7 @@
 package filehandler
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -119,14 +120,14 @@ func (h *Handler) handleRead(payload []byte) (uint8, []byte, error) {
 		return protocol.MsgIoError, ioErr(req.RequestID, protocol.FioEINVAL), nil
 	}
 
-	buf := make([]byte, req.NBytes)
-	n, err := f.Read(buf)
+	resp := make([]byte, 2+req.NBytes)
+	binary.BigEndian.PutUint16(resp[0:], req.RequestID)
+	n, err := f.Read(resp[2:])
 	if err != nil && err != io.EOF {
 		return protocol.MsgIoError, ioErr(req.RequestID, mapErrno(err)), nil
 	}
 
-	resp := &protocol.ReadOkResponse{RequestID: req.RequestID, Data: buf[:n]}
-	return protocol.MsgReadOk, resp.Encode(), nil
+	return protocol.MsgReadOk, resp[:2+n], nil
 }
 
 func (h *Handler) handleWrite(payload []byte) (uint8, []byte, error) {

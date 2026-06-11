@@ -84,8 +84,10 @@
 /* Sequential read-ahead. This cuts request/response round trips for readers
  * like FFmpeg's AVIO layer that commonly pull 32 KiB at a time. */
 #define FIO_INITIAL_READAHEAD_BYTES  (512 * 1024)
-#define FIO_DEFAULT_READAHEAD_BYTES  (1024 * 1024)
+#define FIO_SMALL_FILE_READAHEAD_BYTES FIO_INITIAL_READAHEAD_BYTES
+#define FIO_DEFAULT_READAHEAD_BYTES  (2 * 1024 * 1024)
 #define FIO_MAX_READAHEAD_BYTES      (16 * 1024 * 1024)
+#define FIO_LARGE_FILE_THRESHOLD     (1024LL * 1024LL * 1024LL)
 
 /* ======================================================================
  * Big-endian helpers (manual byte assembly, no htonl)
@@ -143,6 +145,7 @@ typedef struct {
     int64_t  remote_offset;
     int64_t  read_cache_start;
     uint8_t *read_cache;
+    uint32_t read_cache_data_offset;
     uint32_t read_cache_len;
     uint32_t read_ahead_bytes;
     int      dirty;        /* set on write, invalidates fstat cache */
@@ -165,6 +168,7 @@ static struct {
     pthread_mutex_t   dispatch_mutex;
     pthread_cond_t    dispatch_cond;
     uint32_t          read_ahead_bytes;
+    int               read_ahead_explicit;
     fio_vfd_t         vfds[FIO_MAX_FILES];
     fio_pending_t     pending[FIO_MAX_PENDING];
     pthread_t         reader_thread;
@@ -838,6 +842,7 @@ static int vfd_alloc(uint16_t file_id, int64_t initial_size) {
             fio_state.vfds[i].remote_offset    = 0;
             fio_state.vfds[i].read_cache_start = 0;
             fio_state.vfds[i].read_cache       = NULL;
+            fio_state.vfds[i].read_cache_data_offset = 0;
             fio_state.vfds[i].read_cache_len   = 0;
             fio_state.vfds[i].read_ahead_bytes = vfd_initial_read_ahead();
             fio_state.vfds[i].dirty            = 0;
@@ -873,20 +878,35 @@ static uint32_t vfd_initial_read_ahead(void) {
     return FIO_INITIAL_READAHEAD_BYTES;
 }
 
+static uint32_t vfd_max_read_ahead(fio_vfd_t *vfd) {
+    uint32_t max_read_ahead = fio_state.read_ahead_bytes;
+
+    if (!fio_state.read_ahead_explicit &&
+        vfd->cached_size >= 0 &&
+        vfd->cached_size < FIO_LARGE_FILE_THRESHOLD &&
+        max_read_ahead > FIO_SMALL_FILE_READAHEAD_BYTES) {
+        max_read_ahead = FIO_SMALL_FILE_READAHEAD_BYTES;
+    }
+
+    return max_read_ahead;
+}
+
 static void vfd_reset_read_ahead(fio_vfd_t *vfd) {
     vfd->read_ahead_bytes = vfd_initial_read_ahead();
 }
 
 static void vfd_grow_read_ahead(fio_vfd_t *vfd) {
+    uint32_t max_read_ahead = vfd_max_read_ahead(vfd);
+
     if (vfd->read_ahead_bytes == 0) return;
-    if (vfd->read_ahead_bytes >= fio_state.read_ahead_bytes) return;
+    if (vfd->read_ahead_bytes >= max_read_ahead) return;
 
     uint32_t next = vfd->read_ahead_bytes * 2;
     if (next < vfd->read_ahead_bytes) {
-        next = fio_state.read_ahead_bytes;
+        next = max_read_ahead;
     }
-    if (next > fio_state.read_ahead_bytes) {
-        next = fio_state.read_ahead_bytes;
+    if (next > max_read_ahead) {
+        next = max_read_ahead;
     }
     vfd->read_ahead_bytes = next;
 }
@@ -894,6 +914,7 @@ static void vfd_grow_read_ahead(fio_vfd_t *vfd) {
 static void vfd_invalidate_read_cache(fio_vfd_t *vfd) {
     free(vfd->read_cache);
     vfd->read_cache = NULL;
+    vfd->read_cache_data_offset = 0;
     vfd->read_cache_len = 0;
     vfd->read_cache_start = vfd->logical_offset;
 }
@@ -918,7 +939,7 @@ static ssize_t vfd_copy_from_cache(fio_vfd_t *vfd, void *buf, size_t count) {
     uint32_t available = vfd->read_cache_len - (uint32_t)cache_offset;
     size_t to_copy = count < (size_t)available ? count : (size_t)available;
 
-    memcpy(buf, vfd->read_cache + cache_offset, to_copy);
+    memcpy(buf, vfd->read_cache + vfd->read_cache_data_offset + cache_offset, to_copy);
     vfd->logical_offset += (int64_t)to_copy;
     return (ssize_t)to_copy;
 }
@@ -997,6 +1018,7 @@ static void fio_init(void) {
                 parsed = FIO_MAX_READAHEAD_BYTES;
             }
             fio_state.read_ahead_bytes = (uint32_t)parsed;
+            fio_state.read_ahead_explicit = 1;
         } else {
             fprintf(stderr, "fio: invalid FFOIP_READAHEAD_BYTES=%s, using %u\n",
                     read_ahead_str, fio_state.read_ahead_bytes);
@@ -1205,20 +1227,13 @@ ssize_t fio_read(int fd, void *buf, size_t count) {
             }
 
             if ((size_t)data_len > count) {
-                uint8_t *cache = malloc(data_len);
-                if (cache) {
-                    memcpy(cache, data, data_len);
-                    vfd_invalidate_read_cache(vfd);
-                    vfd->read_cache = cache;
-                    vfd->read_cache_start = response_start;
-                    vfd->read_cache_len = data_len;
-                    result = vfd_copy_from_cache(vfd, buf, count);
-                } else {
-                    size_t to_copy = count;
-                    memcpy(buf, data, to_copy);
-                    vfd->logical_offset += (int64_t)to_copy;
-                    result = (ssize_t)to_copy;
-                }
+                vfd_invalidate_read_cache(vfd);
+                vfd->read_cache = fio_state.pending[slot].resp_payload;
+                vfd->read_cache_data_offset = 2;
+                vfd->read_cache_start = response_start;
+                vfd->read_cache_len = data_len;
+                fio_state.pending[slot].resp_payload = NULL;
+                result = vfd_copy_from_cache(vfd, buf, count);
             } else {
                 memcpy(buf, data, data_len);
                 vfd->logical_offset += (int64_t)data_len;
