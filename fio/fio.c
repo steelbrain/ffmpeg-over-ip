@@ -148,6 +148,9 @@ typedef struct {
     uint32_t read_cache_data_offset;
     uint32_t read_cache_len;
     uint32_t read_ahead_bytes;
+    int      prefetch_slot;
+    int64_t  prefetch_start;
+    uint32_t prefetch_request_size;
     int      dirty;        /* set on write, invalidates fstat cache */
 } fio_vfd_t;
 
@@ -783,8 +786,8 @@ static int alloc_pending(uint16_t req_id) {
 
 /* Send request and wait for response. Returns slot index with response populated.
  * On error returns -1 and sets errno. Caller must free resp_payload after use. */
-static int send_and_wait(uint8_t msg_type, const uint8_t *payload, uint32_t payload_len,
-                         uint16_t req_id) {
+static int send_async(uint8_t msg_type, const uint8_t *payload, uint32_t payload_len,
+                      uint16_t req_id) {
     /* Allocate pending slot */
     pthread_mutex_lock(&fio_state.dispatch_mutex);
     int slot = alloc_pending(req_id);
@@ -806,13 +809,22 @@ static int send_and_wait(uint8_t msg_type, const uint8_t *payload, uint32_t payl
         return -1;
     }
 
-    /* Wait for response */
+    return slot;
+}
+
+static void wait_pending_response(int slot) {
     pthread_mutex_lock(&fio_state.dispatch_mutex);
     while (fio_state.pending[slot].resp_payload == NULL && fio_state.pending[slot].resp_type == 0) {
         pthread_cond_wait(&fio_state.dispatch_cond, &fio_state.dispatch_mutex);
     }
     pthread_mutex_unlock(&fio_state.dispatch_mutex);
+}
 
+static int send_and_wait(uint8_t msg_type, const uint8_t *payload, uint32_t payload_len,
+                         uint16_t req_id) {
+    int slot = send_async(msg_type, payload, payload_len, req_id);
+    if (slot < 0) return -1;
+    wait_pending_response(slot);
     return slot;
 }
 
@@ -845,6 +857,9 @@ static int vfd_alloc(uint16_t file_id, int64_t initial_size) {
             fio_state.vfds[i].read_cache_data_offset = 0;
             fio_state.vfds[i].read_cache_len   = 0;
             fio_state.vfds[i].read_ahead_bytes = vfd_initial_read_ahead();
+            fio_state.vfds[i].prefetch_slot    = -1;
+            fio_state.vfds[i].prefetch_start   = 0;
+            fio_state.vfds[i].prefetch_request_size = 0;
             fio_state.vfds[i].dirty            = 0;
             return FIO_VFD_BASE + i;
         }
@@ -919,9 +934,14 @@ static void vfd_invalidate_read_cache(fio_vfd_t *vfd) {
     vfd->read_cache_start = vfd->logical_offset;
 }
 
+static void vfd_cancel_prefetch(fio_vfd_t *vfd);
+static int vfd_take_prefetch_as_cache(fio_vfd_t *vfd);
+static void vfd_maybe_start_prefetch(fio_vfd_t *vfd);
+
 static void vfd_free(int fd) {
     if (fd < FIO_VFD_BASE || fd >= FIO_VFD_BASE + FIO_MAX_FILES) return;
     fio_vfd_t *vfd = &fio_state.vfds[fd - FIO_VFD_BASE];
+    vfd_cancel_prefetch(vfd);
     vfd_invalidate_read_cache(vfd);
     vfd->active = 0;
 }
@@ -942,6 +962,128 @@ static ssize_t vfd_copy_from_cache(fio_vfd_t *vfd, void *buf, size_t count) {
     memcpy(buf, vfd->read_cache + vfd->read_cache_data_offset + cache_offset, to_copy);
     vfd->logical_offset += (int64_t)to_copy;
     return (ssize_t)to_copy;
+}
+
+static void vfd_update_after_prefetch_response(fio_vfd_t *vfd, uint32_t data_len) {
+    vfd->remote_offset = vfd->prefetch_start + (int64_t)data_len;
+    if (data_len < vfd->prefetch_request_size) {
+        vfd->cached_size = vfd->prefetch_start + (int64_t)data_len;
+    }
+}
+
+static void vfd_cancel_prefetch(fio_vfd_t *vfd) {
+    int slot = vfd->prefetch_slot;
+    if (slot < 0) return;
+
+    wait_pending_response(slot);
+    int synced_remote_offset = 0;
+    if (fio_state.pending[slot].resp_type == FIO_MSG_READ_OK) {
+        const uint8_t *data = NULL;
+        uint32_t data_len = 0;
+        if (decode_read_ok(fio_state.pending[slot].resp_payload,
+                           fio_state.pending[slot].resp_len, &(uint16_t){0},
+                           &data, &data_len) == 0) {
+            vfd_update_after_prefetch_response(vfd, data_len);
+            synced_remote_offset = 1;
+        }
+    }
+    if (!synced_remote_offset) {
+        vfd->remote_offset = -1;
+    }
+
+    vfd->prefetch_slot = -1;
+    vfd->prefetch_start = 0;
+    vfd->prefetch_request_size = 0;
+    free_pending(slot);
+}
+
+static int vfd_take_prefetch_as_cache(fio_vfd_t *vfd) {
+    int slot = vfd->prefetch_slot;
+    if (slot < 0 || vfd->logical_offset != vfd->prefetch_start) return 0;
+
+    wait_pending_response(slot);
+    vfd->prefetch_slot = -1;
+
+    int result = 0;
+    if (fio_state.pending[slot].resp_type == FIO_MSG_IO_ERROR) {
+        int32_t wire_err = FIO_EIO;
+        decode_io_error(fio_state.pending[slot].resp_payload,
+                        fio_state.pending[slot].resp_len, &(uint16_t){0}, &wire_err);
+        errno = errno_from_wire(wire_err);
+        result = -1;
+    } else if (fio_state.pending[slot].resp_type == FIO_MSG_READ_OK) {
+        const uint8_t *data = NULL;
+        uint32_t data_len = 0;
+        if (decode_read_ok(fio_state.pending[slot].resp_payload,
+                           fio_state.pending[slot].resp_len, &(uint16_t){0},
+                           &data, &data_len) < 0) {
+            errno = EIO;
+            result = -1;
+        } else {
+            vfd_update_after_prefetch_response(vfd, data_len);
+            vfd_grow_read_ahead(vfd);
+            vfd_invalidate_read_cache(vfd);
+            if (data_len > 0) {
+                vfd->read_cache = fio_state.pending[slot].resp_payload;
+                vfd->read_cache_data_offset = 2;
+                vfd->read_cache_start = vfd->prefetch_start;
+                vfd->read_cache_len = data_len;
+                fio_state.pending[slot].resp_payload = NULL;
+            }
+            result = 1;
+        }
+    } else {
+        errno = EIO;
+        result = -1;
+    }
+
+    vfd->prefetch_start = 0;
+    vfd->prefetch_request_size = 0;
+    free_pending(slot);
+    return result;
+}
+
+static void vfd_maybe_start_prefetch(fio_vfd_t *vfd) {
+    if (vfd->prefetch_slot >= 0) return;
+    if (!vfd->read_cache || vfd->read_cache_len == 0) return;
+    if (vfd->cached_size >= 0 && vfd->cached_size < FIO_LARGE_FILE_THRESHOLD) return;
+    if (vfd->dirty) return;
+
+    uint32_t accmode = vfd->wire_flags & 0x0003;
+    if (accmode != FIO_O_RDONLY) return;
+
+    int64_t cache_end = vfd->read_cache_start + (int64_t)vfd->read_cache_len;
+    if (vfd->remote_offset != cache_end) return;
+    if (vfd->logical_offset < vfd->read_cache_start || vfd->logical_offset > cache_end) return;
+
+    uint32_t request_size = vfd->read_ahead_bytes;
+    if (request_size == 0) return;
+    if (!vfd->dirty && vfd->cached_size >= 0 && cache_end >= 0 && cache_end < vfd->cached_size) {
+        int64_t remaining = vfd->cached_size - cache_end;
+        if (remaining <= 0) return;
+        if (remaining < (int64_t)request_size) {
+            request_size = (uint32_t)remaining;
+        }
+    }
+
+    pthread_mutex_lock(&fio_state.send_mutex);
+    uint16_t req_id = fio_state.next_req_id++;
+    pthread_mutex_unlock(&fio_state.send_mutex);
+
+    uint8_t req_buf[8];
+    encode_read_req(req_buf, sizeof(req_buf), req_id, vfd->file_id, request_size);
+
+    int saved_errno = errno;
+    int slot = send_async(FIO_MSG_READ, req_buf, 8, req_id);
+    if (slot < 0) {
+        errno = saved_errno;
+        return;
+    }
+
+    vfd->prefetch_slot = slot;
+    vfd->prefetch_start = cache_end;
+    vfd->prefetch_request_size = request_size;
+    vfd->remote_offset = cache_end + (int64_t)request_size;
 }
 
 static int vfd_remote_seek(fio_vfd_t *vfd, int64_t offset, uint8_t wire_whence,
@@ -1175,7 +1317,24 @@ ssize_t fio_read(int fd, void *buf, size_t count) {
         vfd->logical_offset == vfd->read_cache_start + (int64_t)vfd->read_cache_len;
 
     ssize_t cached = vfd_copy_from_cache(vfd, buf, count);
-    if (cached > 0) return cached;
+    if (cached > 0) {
+        vfd_maybe_start_prefetch(vfd);
+        return cached;
+    }
+
+    if (vfd->prefetch_slot >= 0) {
+        int prefetch_result = vfd_take_prefetch_as_cache(vfd);
+        if (prefetch_result < 0) return -1;
+        if (prefetch_result > 0) {
+            cached = vfd_copy_from_cache(vfd, buf, count);
+            if (cached > 0) {
+                vfd_maybe_start_prefetch(vfd);
+                return cached;
+            }
+            return 0;
+        }
+        vfd_cancel_prefetch(vfd);
+    }
 
     if (vfd_sync_remote_offset(vfd) < 0) return -1;
     if (at_cache_end) {
@@ -1234,6 +1393,9 @@ ssize_t fio_read(int fd, void *buf, size_t count) {
                 vfd->read_cache_len = data_len;
                 fio_state.pending[slot].resp_payload = NULL;
                 result = vfd_copy_from_cache(vfd, buf, count);
+                if (result > 0) {
+                    vfd_maybe_start_prefetch(vfd);
+                }
             } else {
                 memcpy(buf, data, data_len);
                 vfd->logical_offset += (int64_t)data_len;
@@ -1260,6 +1422,7 @@ ssize_t fio_write(int fd, const void *buf, size_t count) {
     fio_vfd_t *vfd = vfd_get(fd);
     if (!vfd) { errno = EBADF; return -1; }
 
+    vfd_cancel_prefetch(vfd);
     vfd_invalidate_read_cache(vfd);
     vfd_reset_read_ahead(vfd);
     if (vfd_sync_remote_offset(vfd) < 0) return -1;
@@ -1334,6 +1497,7 @@ off_t fio_lseek(int fd, off_t offset, int whence) {
         break;
     case SEEK_END:
         if (vfd->dirty) {
+            vfd_cancel_prefetch(vfd);
             int64_t new_offset = 0;
             if (vfd_remote_seek(vfd, (int64_t)offset, FIO_SEEK_END, &new_offset) < 0) {
                 return -1;
@@ -1361,6 +1525,7 @@ off_t fio_lseek(int fd, off_t offset, int whence) {
         return (off_t)target;
     }
 
+    vfd_cancel_prefetch(vfd);
     int64_t new_offset = 0;
     if (vfd_remote_seek(vfd, target, FIO_SEEK_SET, &new_offset) < 0) {
         return -1;
@@ -1381,6 +1546,7 @@ int fio_close(int fd) {
     fio_vfd_t *vfd = vfd_get(fd);
     if (!vfd) { errno = EBADF; return -1; }
 
+    vfd_cancel_prefetch(vfd);
     vfd_invalidate_read_cache(vfd);
     vfd_reset_read_ahead(vfd);
 
@@ -1484,6 +1650,7 @@ int fio_ftruncate(int fd, off_t length) {
     fio_vfd_t *vfd = vfd_get(fd);
     if (!vfd) { errno = EBADF; return -1; }
 
+    vfd_cancel_prefetch(vfd);
     vfd_invalidate_read_cache(vfd);
     vfd_reset_read_ahead(vfd);
 
