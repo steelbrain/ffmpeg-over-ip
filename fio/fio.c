@@ -1046,7 +1046,6 @@ static int vfd_take_prefetch_as_cache(fio_vfd_t *vfd) {
 static void vfd_maybe_start_prefetch(fio_vfd_t *vfd) {
     if (vfd->prefetch_slot >= 0) return;
     if (!vfd->read_cache || vfd->read_cache_len == 0) return;
-    if (vfd->cached_size >= 0 && vfd->cached_size < FIO_LARGE_FILE_THRESHOLD) return;
     if (vfd->dirty) return;
 
     uint32_t accmode = vfd->wire_flags & 0x0003;
@@ -1055,6 +1054,10 @@ static void vfd_maybe_start_prefetch(fio_vfd_t *vfd) {
     int64_t cache_end = vfd->read_cache_start + (int64_t)vfd->read_cache_len;
     if (vfd->remote_offset != cache_end) return;
     if (vfd->logical_offset < vfd->read_cache_start || vfd->logical_offset > cache_end) return;
+    if (vfd->cached_size >= 0 && vfd->cached_size < FIO_LARGE_FILE_THRESHOLD) {
+        int64_t cache_offset = vfd->logical_offset - vfd->read_cache_start;
+        if (cache_offset < (int64_t)(vfd->read_cache_len / 2)) return;
+    }
 
     uint32_t request_size = vfd->read_ahead_bytes;
     if (request_size == 0) return;
