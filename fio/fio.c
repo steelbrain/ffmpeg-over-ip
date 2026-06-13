@@ -1480,8 +1480,13 @@ void fio_test_teardown(void) {
     }
 
     if (fio_state.initialized == 2 && fio_state.sock_fd >= 0) {
-        close(fio_state.sock_fd);
+        /* shutdown() (not close()) is what reliably unblocks the reader
+         * thread's in-progress read() on Linux, where closing an fd does not
+         * wake a blocked read on another thread. SHUT_RDWR also delivers EOF
+         * to the peer, so the mock server thread exits too. */
+        shutdown(fio_state.sock_fd, SHUT_RDWR);
         pthread_join(fio_state.reader_thread, NULL);
+        close(fio_state.sock_fd);
         fio_state.sock_fd = -1;
     }
     fio_state.initialized = 1; /* passthrough */
