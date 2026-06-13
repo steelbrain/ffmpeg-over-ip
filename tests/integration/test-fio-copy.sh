@@ -6,10 +6,13 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 echo "=== test-fio-copy: end-to-end file copy via fio ==="
 
-# Build fio_copy
+# Build fio_copy. FIO_EXTRA_CFLAGS lets callers add e.g. sanitizer flags
+# (see scripts/test-fio-sanitize.sh).
 echo "Building fio_copy..."
 cd "$ROOT/tests/fio-bins"
+# shellcheck disable=SC2086
 cc -Wall -Wextra -Werror -std=c11 -DFIO_TESTING -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE \
+    ${FIO_EXTRA_CFLAGS:-} \
     -o fio_copy -I../../fio ../../fio/fio.c fio_copy.c -lpthread
 
 # Build fio-harness

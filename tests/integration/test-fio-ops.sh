@@ -6,10 +6,13 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 echo "=== test-fio-ops: remaining fio operations end-to-end ==="
 
-# Build fio_ops
+# Build fio_ops. FIO_EXTRA_CFLAGS lets callers add e.g. sanitizer flags
+# (see scripts/test-fio-sanitize.sh).
 echo "Building fio_ops..."
 cd "$ROOT/tests/fio-bins"
+# shellcheck disable=SC2086
 cc -Wall -Wextra -Werror -std=c11 -DFIO_TESTING -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE \
+    ${FIO_EXTRA_CFLAGS:-} \
     -o fio_ops -I../../fio ../../fio/fio.c fio_ops.c -lpthread
 
 # Build fio-harness

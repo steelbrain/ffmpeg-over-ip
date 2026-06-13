@@ -77,6 +77,28 @@ jobs:
             -o fio_test_sanitize fio.c fio_test.c -lpthread
           ./fio_test_sanitize
 
+  fio-integration-sanitize:
+    name: fio Integration (sanitizers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      # Drives fio.c over a real socket tunnel against the Go harness with the
+      # fio layer built under ASan+UBSan (+LSan on Linux), covering the
+      # networked read-ahead/prefetch/seek paths the unit tests' in-process
+      # mock cannot reach.
+      - name: Run fio integration tests under sanitizers
+        run: bash scripts/test-fio-sanitize.sh
+
   static-analysis:
     name: Static Analysis
     runs-on: ubuntu-latest
