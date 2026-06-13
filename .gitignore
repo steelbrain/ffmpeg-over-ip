@@ -15,6 +15,7 @@ fio/*.plist
 fio/*.dSYM/
 tests/fio-bins/fio_copy
 tests/fio-bins/fio_ops
+tests/fio-bins/*.dSYM/
 tests/integration/harness
 
 # Website branch artifacts
