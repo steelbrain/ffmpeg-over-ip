@@ -107,6 +107,13 @@ extern int encode_io_error(uint8_t *buf, uint32_t cap,
 extern int decode_io_error(const uint8_t *buf, uint32_t len,
                            uint16_t *req_id, int32_t *err);
 
+/* Test-only tunnel injection hooks (FIO_TESTING) */
+extern int fio_test_set_tunnel(int sock_fd, uint32_t read_ahead_bytes,
+                               int read_ahead_explicit, uint32_t range_cache_max_bytes);
+extern void fio_test_teardown(void);
+
+#include <pthread.h>
+
 /* Big-endian helpers for envelope tests */
 static inline void test_put_u32(uint8_t *buf, uint32_t v) {
     buf[0] = (uint8_t)(v >> 24); buf[1] = (uint8_t)(v >> 16);
@@ -1676,6 +1683,425 @@ static int wire_test_main(int port) {
 }
 
 /* ======================================================================
+ * Tunnel-mode tests: in-process mock server + read-ahead/cache/prefetch
+ *
+ * These exercise the virtual-fd path in fio.c (read-ahead, range cache,
+ * async prefetch, cache-aware seek, short-read handling, write invalidation)
+ * which the passthrough tests never reach. A socketpair connects fio's reader
+ * thread to a mock server thread that serves a simulated read-only file.
+ * ====================================================================== */
+
+/* Deterministic content pattern so reads can be verified byte-for-byte. */
+static uint8_t tun_pat(int64_t i) {
+    return (uint8_t)(((uint64_t)i * 1103515245u + 12345u) >> 16);
+}
+
+typedef struct {
+    int       sock;            /* server end of the socketpair */
+    pthread_t thread;
+    uint8_t  *content;
+    int64_t   size;
+    int64_t   offset;          /* server-side file offset */
+    uint32_t  short_read_cap;  /* if nonzero, cap each READ response (simulates
+                                  short reads from NFS/FUSE-backed storage) */
+    pthread_mutex_t mu;
+    int       reads;           /* READ requests served */
+    int       seeks;           /* SEEK requests served */
+    int       writes;          /* WRITE requests served */
+} mock_server;
+
+static void *mock_server_thread(void *arg) {
+    mock_server *m = (mock_server *)arg;
+    uint8_t header[5];
+
+    for (;;) {
+        if (read_full(m->sock, header, 5) != 0) break;
+        uint8_t type = header[0];
+        uint32_t plen = test_get_u32(header + 1);
+
+        uint8_t *payload = NULL;
+        if (plen > 0) {
+            payload = malloc(plen);
+            if (!payload || read_full(m->sock, payload, plen) != 0) { free(payload); break; }
+        }
+        uint16_t req_id = (plen >= 2) ? (uint16_t)(((uint16_t)payload[0] << 8) | payload[1]) : 0;
+
+        if (type == WIRE_MSG_OPEN) {
+            uint8_t resp[16];
+            int n = encode_open_ok(resp, sizeof(resp), req_id, m->size);
+            pthread_mutex_lock(&m->mu);
+            m->offset = 0;
+            pthread_mutex_unlock(&m->mu);
+            send_envelope(m->sock, WIRE_MSG_OPEN_OK, resp, (uint32_t)n);
+        } else if (type == WIRE_MSG_READ) {
+            uint16_t r, f; uint32_t nb;
+            if (decode_read_req(payload, plen, &r, &f, &nb) != 0) { free(payload); break; }
+            pthread_mutex_lock(&m->mu);
+            int64_t avail = m->size - m->offset;
+            if (avail < 0) avail = 0;
+            uint32_t give = (nb < (uint32_t)avail) ? nb : (uint32_t)avail;
+            if (m->short_read_cap && give > m->short_read_cap) give = m->short_read_cap;
+            uint8_t *resp = malloc((size_t)give + 2);
+            resp[0] = (uint8_t)(req_id >> 8);
+            resp[1] = (uint8_t)req_id;
+            if (give > 0) memcpy(resp + 2, m->content + m->offset, give);
+            m->offset += give;
+            m->reads++;
+            pthread_mutex_unlock(&m->mu);
+            send_envelope(m->sock, WIRE_MSG_READ_OK, resp, give + 2);
+            free(resp);
+        } else if (type == WIRE_MSG_SEEK) {
+            uint16_t r, f; int64_t off; uint8_t wh;
+            if (decode_seek_req(payload, plen, &r, &f, &off, &wh) != 0) { free(payload); break; }
+            pthread_mutex_lock(&m->mu);
+            int64_t no = (wh == 0) ? off : (wh == 1) ? m->offset + off : m->size + off;
+            m->offset = no;
+            m->seeks++;
+            pthread_mutex_unlock(&m->mu);
+            uint8_t resp[16];
+            int n = encode_seek_ok(resp, sizeof(resp), req_id, no);
+            send_envelope(m->sock, WIRE_MSG_SEEK_OK, resp, (uint32_t)n);
+        } else if (type == WIRE_MSG_WRITE) {
+            uint16_t r, f; const uint8_t *d; uint32_t dl;
+            if (decode_write_req(payload, plen, &r, &f, &d, &dl) != 0) { free(payload); break; }
+            pthread_mutex_lock(&m->mu);
+            if (m->offset >= 0 && m->offset + (int64_t)dl <= m->size && dl > 0) {
+                memcpy(m->content + m->offset, d, dl);
+            }
+            m->offset += dl;
+            m->writes++;
+            pthread_mutex_unlock(&m->mu);
+            uint8_t resp[16];
+            int n = encode_write_ok(resp, sizeof(resp), req_id, dl);
+            send_envelope(m->sock, WIRE_MSG_WRITE_OK, resp, (uint32_t)n);
+        } else if (type == WIRE_MSG_CLOSE) {
+            uint8_t resp[8];
+            int n = encode_reqid_resp(resp, sizeof(resp), req_id);
+            send_envelope(m->sock, WIRE_MSG_CLOSE_OK, resp, (uint32_t)n);
+        } else if (type == WIRE_MSG_FSTAT) {
+            uint8_t resp[16];
+            int n = encode_fstat_ok(resp, sizeof(resp), req_id, m->size, 0100644);
+            send_envelope(m->sock, WIRE_MSG_FSTAT_OK, resp, (uint32_t)n);
+        } else if (type == WIRE_MSG_FTRUNCATE) {
+            uint16_t r, f; int64_t len;
+            if (decode_ftruncate_req(payload, plen, &r, &f, &len) == 0) {
+                pthread_mutex_lock(&m->mu);
+                if (len >= 0 && len <= m->size) m->size = len;
+                pthread_mutex_unlock(&m->mu);
+            }
+            uint8_t resp[8];
+            int n = encode_reqid_resp(resp, sizeof(resp), req_id);
+            send_envelope(m->sock, WIRE_MSG_FTRUNCATE_OK, resp, (uint32_t)n);
+        }
+        free(payload);
+    }
+    return NULL;
+}
+
+static int mock_reads(mock_server *m) {
+    pthread_mutex_lock(&m->mu);
+    int v = m->reads;
+    pthread_mutex_unlock(&m->mu);
+    return v;
+}
+static int mock_seeks(mock_server *m) {
+    pthread_mutex_lock(&m->mu);
+    int v = m->seeks;
+    pthread_mutex_unlock(&m->mu);
+    return v;
+}
+
+static int tunnel_start(mock_server *m, uint8_t *content, int64_t size,
+                        uint32_t read_ahead, int read_ahead_explicit,
+                        uint32_t range_cache_max, uint32_t short_read_cap) {
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return -1;
+
+    memset(m, 0, sizeof(*m));
+    m->sock = sv[1];
+    m->content = content;
+    m->size = size;
+    m->short_read_cap = short_read_cap;
+    pthread_mutex_init(&m->mu, NULL);
+
+    if (pthread_create(&m->thread, NULL, mock_server_thread, m) != 0) {
+        close(sv[0]); close(sv[1]);
+        return -1;
+    }
+    if (fio_test_set_tunnel(sv[0], read_ahead, read_ahead_explicit, range_cache_max) != 0) {
+        close(sv[0]);
+        return -1;
+    }
+    return 0;
+}
+
+static void tunnel_stop(mock_server *m) {
+    fio_test_teardown();          /* closes fio's socket end, joins reader thread */
+    pthread_join(m->thread, NULL); /* server sees EOF and exits */
+    close(m->sock);
+    pthread_mutex_destroy(&m->mu);
+}
+
+/* Tear down the tunnel before failing, so a failed assertion never leaves a
+ * live reader/server thread for the next test to race against. */
+#define TUN_ASSERT(cond) do { if (!(cond)) { \
+    printf("ASSERT FAILED: %s (line %d) ", #cond, __LINE__); \
+    tunnel_stop(&srv); return 1; } } while(0)
+
+/* Fill a buffer with the verification pattern starting at file offset `base`. */
+static int tun_verify(const uint8_t *buf, int64_t base, int64_t len) {
+    for (int64_t i = 0; i < len; i++) {
+        if (buf[i] != tun_pat(base + i)) return 0;
+    }
+    return 1;
+}
+
+TEST(tunnel_read_ahead_sequential) {
+    /* Many small reads should be satisfied with far fewer server round-trips. */
+    enum { SIZE = 4096 };
+    uint8_t content[SIZE];
+    for (int i = 0; i < SIZE; i++) content[i] = tun_pat(i);
+
+    mock_server srv;
+    TUN_ASSERT(tunnel_start(&srv, content, SIZE, 512, 1, 64 * 1024 * 1024, 0) == 0);
+
+    int fd = fio_open("/movie.mkv", O_RDONLY, 0);
+    TUN_ASSERT(fd >= 0);
+
+    uint8_t got[SIZE];
+    int64_t total = 0;
+    int fio_reads = 0;
+    for (;;) {
+        ssize_t n = fio_read(fd, got + total, 64);
+        TUN_ASSERT(n >= 0);
+        fio_reads++;
+        if (n == 0) break;
+        total += n;
+        TUN_ASSERT(total <= SIZE);
+    }
+    TUN_ASSERT(total == SIZE);
+    TUN_ASSERT(tun_verify(got, 0, SIZE));
+    TUN_ASSERT(fio_read(fd, got, 64) == 0); /* stays at EOF */
+
+    TUN_ASSERT(fio_close(fd) == 0);
+    int server_reads = mock_reads(&srv);
+    tunnel_stop(&srv);
+
+    /* ~64 fio_read calls, but read-ahead should collapse them to a handful. */
+    ASSERT(fio_reads >= 60);
+    ASSERT(server_reads < 16);
+    return 0;
+}
+
+TEST(tunnel_backward_seek_hits_cache) {
+    /* Read once with read-ahead covering the whole file, seek back, re-read:
+     * the backward seek and re-read must be served from cache (no new server
+     * seek, no new server read). */
+    enum { SIZE = 2048 };
+    uint8_t content[SIZE];
+    for (int i = 0; i < SIZE; i++) content[i] = tun_pat(i);
+
+    mock_server srv;
+    TUN_ASSERT(tunnel_start(&srv, content, SIZE, SIZE, 1, 64 * 1024 * 1024, 0) == 0);
+
+    int fd = fio_open("/movie.mkv", O_RDONLY, 0);
+    TUN_ASSERT(fd >= 0);
+
+    uint8_t got[512];
+    TUN_ASSERT(fio_read(fd, got, 512) == 512);          /* fills cache [0,2048) */
+    TUN_ASSERT(tun_verify(got, 0, 512));
+    TUN_ASSERT(mock_reads(&srv) == 1);
+
+    off_t pos = fio_lseek(fd, 0, SEEK_SET);             /* backward, into cache */
+    TUN_ASSERT(pos == 0);
+    TUN_ASSERT(fio_read(fd, got, 512) == 512);
+    TUN_ASSERT(tun_verify(got, 0, 512));
+
+    pos = fio_lseek(fd, 1000, SEEK_SET);                /* forward, into cache */
+    TUN_ASSERT(pos == 1000);
+    TUN_ASSERT(fio_read(fd, got, 200) == 200);
+    TUN_ASSERT(tun_verify(got, 1000, 200));
+
+    int server_reads = mock_reads(&srv);
+    int server_seeks = mock_seeks(&srv);
+    TUN_ASSERT(fio_close(fd) == 0);
+    tunnel_stop(&srv);
+
+    ASSERT(server_reads == 1); /* whole file fetched once, no refetch */
+    ASSERT(server_seeks == 0); /* every seek resolved from cache */
+    return 0;
+}
+
+TEST(tunnel_seek_outside_cache_refetches) {
+    /* A seek past the cached window must issue a real remote seek and read. */
+    enum { SIZE = 8192 };
+    uint8_t content[SIZE];
+    for (int i = 0; i < SIZE; i++) content[i] = tun_pat(i);
+
+    mock_server srv;
+    TUN_ASSERT(tunnel_start(&srv, content, SIZE, 1024, 1, 64 * 1024 * 1024, 0) == 0);
+
+    int fd = fio_open("/movie.mkv", O_RDONLY, 0);
+    TUN_ASSERT(fd >= 0);
+
+    uint8_t got[256];
+    TUN_ASSERT(fio_read(fd, got, 100) == 100);   /* cache [0,1024) */
+    TUN_ASSERT(tun_verify(got, 0, 100));
+
+    off_t pos = fio_lseek(fd, 5000, SEEK_SET);   /* outside cache */
+    TUN_ASSERT(pos == 5000);
+    TUN_ASSERT(mock_seeks(&srv) == 1);
+
+    TUN_ASSERT(fio_read(fd, got, 100) == 100);
+    TUN_ASSERT(tun_verify(got, 5000, 100));
+
+    TUN_ASSERT(fio_close(fd) == 0);
+    tunnel_stop(&srv);
+    return 0;
+}
+
+TEST(tunnel_short_reads_no_corruption) {
+    /* The server never returns more than 500 bytes per READ even though the
+     * client requests up to 2 KiB and more is available. fio.c infers EOF from
+     * short reads to track file size; verify that inference never drops or
+     * corrupts data and still terminates cleanly at true EOF. */
+    enum { SIZE = 4096 };
+    uint8_t content[SIZE];
+    for (int i = 0; i < SIZE; i++) content[i] = tun_pat(i);
+
+    mock_server srv;
+    TUN_ASSERT(tunnel_start(&srv, content, SIZE, 2048, 1, 64 * 1024 * 1024, 500) == 0);
+
+    int fd = fio_open("/movie.mkv", O_RDONLY, 0);
+    TUN_ASSERT(fd >= 0);
+
+    uint8_t got[SIZE];
+    int64_t total = 0;
+    for (;;) {
+        ssize_t n = fio_read(fd, got + total, 256);
+        TUN_ASSERT(n >= 0);
+        if (n == 0) break;
+        total += n;
+        TUN_ASSERT(total <= SIZE);
+    }
+    TUN_ASSERT(total == SIZE);
+    TUN_ASSERT(tun_verify(got, 0, SIZE));
+
+    TUN_ASSERT(fio_close(fd) == 0);
+    tunnel_stop(&srv);
+    return 0;
+}
+
+TEST(tunnel_write_invalidates_cache) {
+    /* After a write, a cached read region must be refetched so the reader sees
+     * the new bytes rather than stale cached ones. */
+    enum { SIZE = 2048 };
+    uint8_t content[SIZE];
+    for (int i = 0; i < SIZE; i++) content[i] = tun_pat(i);
+
+    mock_server srv;
+    TUN_ASSERT(tunnel_start(&srv, content, SIZE, SIZE, 1, 64 * 1024 * 1024, 0) == 0);
+
+    int fd = fio_open("/movie.mkv", O_RDWR, 0);
+    TUN_ASSERT(fd >= 0);
+
+    uint8_t got[256];
+    TUN_ASSERT(fio_read(fd, got, 100) == 100);    /* cache covers [0,2048) incl [100,110) */
+    TUN_ASSERT(tun_verify(got, 0, 100));
+
+    /* Overwrite [100,110) with a marker; server stores it. */
+    uint8_t marker[10];
+    for (int i = 0; i < 10; i++) marker[i] = 0xAB;
+    TUN_ASSERT(fio_write(fd, marker, 10) == 10);   /* writes at offset 100 */
+
+    off_t pos = fio_lseek(fd, 0, SEEK_SET);
+    TUN_ASSERT(pos == 0);
+    TUN_ASSERT(fio_read(fd, got, 200) == 200);
+    TUN_ASSERT(tun_verify(got, 0, 100));           /* unchanged prefix */
+    for (int i = 0; i < 10; i++) TUN_ASSERT(got[100 + i] == 0xAB); /* fresh, not stale */
+    TUN_ASSERT(tun_verify(got + 110, 110, 90));    /* unchanged suffix */
+
+    TUN_ASSERT(fio_close(fd) == 0);
+    tunnel_stop(&srv);
+    return 0;
+}
+
+TEST(tunnel_close_with_inflight_prefetch) {
+    /* Consuming a full cache block triggers an async prefetch; closing while it
+     * is in flight must cancel and free it cleanly (leak/UAF caught by ASan). */
+    enum { SIZE = 8192 };
+    uint8_t content[SIZE];
+    for (int i = 0; i < SIZE; i++) content[i] = tun_pat(i);
+
+    mock_server srv;
+    TUN_ASSERT(tunnel_start(&srv, content, SIZE, 512, 1, 64 * 1024 * 1024, 0) == 0);
+
+    int fd = fio_open("/movie.mkv", O_RDONLY, 0);
+    TUN_ASSERT(fd >= 0);
+
+    uint8_t got[512];
+    TUN_ASSERT(fio_read(fd, got, 512) == 512); /* consumes whole block -> prefetch */
+    TUN_ASSERT(tun_verify(got, 0, 512));
+
+    TUN_ASSERT(fio_close(fd) == 0);            /* cancels the in-flight prefetch */
+    tunnel_stop(&srv);
+    return 0;
+}
+
+TEST(tunnel_seek_end_and_read) {
+    /* SEEK_END is computed from the cached size for read-only files. */
+    enum { SIZE = 1000 };
+    uint8_t content[SIZE];
+    for (int i = 0; i < SIZE; i++) content[i] = tun_pat(i);
+
+    mock_server srv;
+    TUN_ASSERT(tunnel_start(&srv, content, SIZE, 4096, 1, 64 * 1024 * 1024, 0) == 0);
+
+    int fd = fio_open("/movie.mkv", O_RDONLY, 0);
+    TUN_ASSERT(fd >= 0);
+
+    off_t end = fio_lseek(fd, 0, SEEK_END);
+    TUN_ASSERT(end == SIZE);
+
+    off_t pos = fio_lseek(fd, -100, SEEK_END);
+    TUN_ASSERT(pos == SIZE - 100);
+
+    uint8_t got[100];
+    TUN_ASSERT(fio_read(fd, got, 100) == 100);
+    TUN_ASSERT(tun_verify(got, SIZE - 100, 100));
+    TUN_ASSERT(fio_read(fd, got, 100) == 0); /* at EOF */
+
+    TUN_ASSERT(fio_close(fd) == 0);
+    tunnel_stop(&srv);
+    return 0;
+}
+
+TEST(tunnel_oneshot_read_larger_than_file) {
+    /* A single read larger than the file returns all bytes then EOF. */
+    enum { SIZE = 300 };
+    uint8_t content[SIZE];
+    for (int i = 0; i < SIZE; i++) content[i] = tun_pat(i);
+
+    mock_server srv;
+    TUN_ASSERT(tunnel_start(&srv, content, SIZE, 512, 1, 64 * 1024 * 1024, 0) == 0);
+
+    int fd = fio_open("/movie.mkv", O_RDONLY, 0);
+    TUN_ASSERT(fd >= 0);
+
+    uint8_t got[4096];
+    ssize_t n = fio_read(fd, got, sizeof(got));
+    TUN_ASSERT(n == SIZE);
+    TUN_ASSERT(tun_verify(got, 0, SIZE));
+    TUN_ASSERT(fio_read(fd, got, sizeof(got)) == 0);
+
+    TUN_ASSERT(fio_close(fd) == 0);
+    tunnel_stop(&srv);
+    return 0;
+}
+
+#undef TUN_ASSERT
+
+/* ======================================================================
  * main
  * ====================================================================== */
 
@@ -1775,6 +2201,16 @@ int main(int argc, char *argv[]) {
     RUN(passthrough_seek_end);
     RUN(passthrough_read_write_large);
     RUN(passthrough_fstat_permissions);
+
+    printf("\n--- Tunnel Mode: Read-Ahead / Cache / Prefetch ---\n");
+    RUN(tunnel_read_ahead_sequential);
+    RUN(tunnel_backward_seek_hits_cache);
+    RUN(tunnel_seek_outside_cache_refetches);
+    RUN(tunnel_short_reads_no_corruption);
+    RUN(tunnel_write_invalidates_cache);
+    RUN(tunnel_close_with_inflight_prefetch);
+    RUN(tunnel_seek_end_and_read);
+    RUN(tunnel_oneshot_read_larger_than_file);
 
     printf("\n========================================\n");
     printf("Results: %d/%d tests passed\n", tests_passed, tests_run);

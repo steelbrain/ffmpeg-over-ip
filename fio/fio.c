@@ -1426,6 +1426,68 @@ static void fio_ensure_init(void) {
     pthread_once(&fio_once, fio_init);
 }
 
+#ifdef FIO_TESTING
+/* ======================================================================
+ * J2. Test-only tunnel injection
+ *
+ * The read-ahead / prefetch / range-cache logic only runs on virtual fds in
+ * tunnel mode, which normally needs a live server connection. These hooks let
+ * the unit tests drive tunnel mode in-process over a socketpair: one end is a
+ * mock server thread, the other is handed here as fio_state.sock_fd.
+ * ====================================================================== */
+
+/* Install a pre-connected socket and start the reader thread, forcing tunnel
+ * mode. read_ahead_explicit controls whether the small-file read-ahead cap is
+ * bypassed (mirrors FFOIP_READAHEAD_BYTES being set). Returns 0 on success. */
+int fio_test_set_tunnel(int sock_fd, uint32_t read_ahead_bytes,
+                        int read_ahead_explicit, uint32_t range_cache_max_bytes) {
+    /* Consume pthread_once so a later fio_* call cannot re-run fio_init and
+     * clobber the state we install here. */
+    fio_ensure_init();
+
+    memset(&fio_state, 0, sizeof(fio_state));
+    fio_state.sock_fd = sock_fd;
+    fio_state.next_file_id = 1;
+    fio_state.next_req_id = 1;
+    fio_state.read_ahead_bytes = read_ahead_bytes;
+    fio_state.read_ahead_explicit = read_ahead_explicit;
+    fio_state.range_cache_max_bytes = range_cache_max_bytes;
+    pthread_mutex_init(&fio_state.send_mutex, NULL);
+    pthread_mutex_init(&fio_state.dispatch_mutex, NULL);
+    pthread_cond_init(&fio_state.dispatch_cond, NULL);
+
+    if (pthread_create(&fio_state.reader_thread, NULL, reader_thread_func, NULL) != 0) {
+        fio_state.sock_fd = -1;
+        fio_state.initialized = 1;
+        return -1;
+    }
+    fio_state.initialized = 2;
+    return 0;
+}
+
+/* Tear down the injected tunnel: drop any caches left on still-open vfds
+ * (without touching the socket, since the reader thread may be exiting), close
+ * the socket to unblock + join the reader thread, and leave a consistent
+ * passthrough state. Safe to call after an early test return. */
+void fio_test_teardown(void) {
+    for (int i = 0; i < FIO_MAX_FILES; i++) {
+        fio_vfd_t *vfd = &fio_state.vfds[i];
+        if (vfd->active) {
+            vfd->prefetch_slot = -1; /* abandon any in-flight prefetch; no wait */
+            vfd_invalidate_read_cache(vfd);
+            vfd->active = 0;
+        }
+    }
+
+    if (fio_state.initialized == 2 && fio_state.sock_fd >= 0) {
+        close(fio_state.sock_fd);
+        pthread_join(fio_state.reader_thread, NULL);
+        fio_state.sock_fd = -1;
+    }
+    fio_state.initialized = 1; /* passthrough */
+}
+#endif /* FIO_TESTING */
+
 /* ======================================================================
  * K. Public API Functions
  * ====================================================================== */
