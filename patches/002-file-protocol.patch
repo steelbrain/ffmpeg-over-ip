@@ -1,5 +1,5 @@
 diff --git a/libavformat/file.c b/libavformat/file.c
-index 6a66040..9e6b5c5 100644
+index 3ceddc8..d9213b6 100644
 --- a/libavformat/file.c
 +++ b/libavformat/file.c
 @@ -41,6 +41,7 @@
@@ -10,7 +10,7 @@ index 6a66040..9e6b5c5 100644
  
  /* Some systems may not have S_ISFIFO */
  #ifndef S_ISFIFO
-@@ -141,7 +142,7 @@ static int file_read(URLContext *h, unsigned char *buf, int size)
+@@ -143,7 +144,7 @@ static int file_read(URLContext *h, unsigned char *buf, int size)
      FileContext *c = h->priv_data;
      int ret;
      size = FFMIN(size, c->blocksize);
@@ -19,7 +19,7 @@ index 6a66040..9e6b5c5 100644
      if (ret == 0 && c->follow)
          return AVERROR(EAGAIN);
      if (ret == 0)
-@@ -154,7 +155,7 @@ static int file_write(URLContext *h, const unsigned char *buf, int size)
+@@ -156,7 +157,7 @@ static int file_write(URLContext *h, const unsigned char *buf, int size)
      FileContext *c = h->priv_data;
      int ret;
      size = FFMIN(size, c->blocksize);
@@ -28,7 +28,7 @@ index 6a66040..9e6b5c5 100644
      return (ret == -1) ? AVERROR(errno) : ret;
  }
  
-@@ -172,17 +173,17 @@ static int file_check(URLContext *h, int mask)
+@@ -174,17 +175,17 @@ static int file_check(URLContext *h, int mask)
  
      {
  #if HAVE_ACCESS && defined(R_OK)
@@ -50,7 +50,7 @@ index 6a66040..9e6b5c5 100644
      if (ret < 0)
          return AVERROR(errno);
  
-@@ -221,7 +222,7 @@ static int fd_dup(URLContext *h, int oldfd)
+@@ -223,7 +224,7 @@ static int fd_dup(URLContext *h, int oldfd)
  static int file_close(URLContext *h)
  {
      FileContext *c = h->priv_data;
@@ -59,7 +59,7 @@ index 6a66040..9e6b5c5 100644
      return (ret == -1) ? AVERROR(errno) : 0;
  }
  
-@@ -233,11 +234,11 @@ static int64_t file_seek(URLContext *h, int64_t pos, int whence)
+@@ -235,11 +236,11 @@ static int64_t file_seek(URLContext *h, int64_t pos, int whence)
  
      if (whence == AVSEEK_SIZE) {
          struct stat st;
@@ -73,7 +73,7 @@ index 6a66040..9e6b5c5 100644
  
      return ret < 0 ? AVERROR(errno) : ret;
  }
-@@ -246,25 +247,13 @@ static int64_t file_seek(URLContext *h, int64_t pos, int whence)
+@@ -248,25 +249,13 @@ static int64_t file_seek(URLContext *h, int64_t pos, int whence)
  
  static int file_delete(URLContext *h)
  {
@@ -101,7 +101,7 @@ index 6a66040..9e6b5c5 100644
  }
  
  static int file_move(URLContext *h_src, URLContext *h_dst)
-@@ -274,7 +263,7 @@ static int file_move(URLContext *h_src, URLContext *h_dst)
+@@ -276,7 +265,7 @@ static int file_move(URLContext *h_src, URLContext *h_dst)
      av_strstart(filename_src, "file:", &filename_src);
      av_strstart(filename_dst, "file:", &filename_dst);
  
@@ -110,7 +110,7 @@ index 6a66040..9e6b5c5 100644
          return AVERROR(errno);
  
      return 0;
-@@ -303,12 +292,12 @@ static int file_open(URLContext *h, const char *filename, int flags)
+@@ -305,12 +294,12 @@ static int file_open(URLContext *h, const char *filename, int flags)
  #ifdef O_BINARY
      access |= O_BINARY;
  #endif
@@ -123,9 +123,9 @@ index 6a66040..9e6b5c5 100644
 -    h->is_streamed = !fstat(fd, &st) && S_ISFIFO(st.st_mode);
 +    h->is_streamed = !fio_fstat(fd, &st) && S_ISFIFO(st.st_mode);
  
-     /* Buffer writes more than the default 32k to improve throughput especially
-      * with networked file systems */
-@@ -493,7 +482,7 @@ static int fd_open(URLContext *h, const char *filename, int flags)
+     if (c->pkt_size) {
+         h->max_packet_size = c->pkt_size;
+@@ -503,7 +492,7 @@ static int fd_open(URLContext *h, const char *filename, int flags)
              c->fd = 0;
          }
      }
@@ -134,7 +134,7 @@ index 6a66040..9e6b5c5 100644
          return AVERROR(errno);
      h->is_streamed = !(S_ISREG(st.st_mode) || S_ISBLK(st.st_mode));
      c->fd = fd_dup(h, c->fd);
-@@ -627,8 +616,8 @@ static int android_content_open(URLContext *h, const char *filename, int flags)
+@@ -642,8 +631,8 @@ static int android_content_open(URLContext *h, const char *filename, int flags)
      if (ret < 0)
          goto done;
  
