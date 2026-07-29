@@ -81,6 +81,13 @@
 /* Pending request slots */
 #define FIO_MAX_PENDING  64
 
+/* Local-prefix allowlist (FFOIP_SHORT_CIRCUIT_READ). Read-only opens under one of
+ * these prefixes are served from the server's own filesystem instead of being
+ * tunneled to the client — the shared-storage case, where the server has the
+ * media mounted at the same path the client sees. */
+#define FIO_MAX_PREFIXES     16
+#define FIO_MAX_PREFIX_LEN   512
+
 /* Sequential read-ahead. This cuts request/response round trips for readers
  * like FFmpeg's AVIO layer that commonly pull 32 KiB at a time. */
 #define FIO_INITIAL_READAHEAD_BYTES  (512 * 1024)
@@ -186,6 +193,10 @@ static struct {
     uint32_t          read_ahead_bytes;
     int               read_ahead_explicit;
     uint32_t          range_cache_max_bytes;
+    char              local_prefixes[FIO_MAX_PREFIXES][FIO_MAX_PREFIX_LEN];
+    int               local_prefix_count;
+    char              local_write_prefixes[FIO_MAX_PREFIXES][FIO_MAX_PREFIX_LEN];
+    int               local_write_prefix_count;
     fio_vfd_t         vfds[FIO_MAX_FILES];
     fio_pending_t     pending[FIO_MAX_PENDING];
     pthread_t         reader_thread;
@@ -1306,6 +1317,106 @@ static int vfd_sync_remote_offset(fio_vfd_t *vfd) {
  * J. Lazy Init
  * ====================================================================== */
 
+/* O_ACCMODE is POSIX; MSVC's fcntl.h omits it. O_RDONLY/O_WRONLY/O_RDWR are
+ * 0/1/2 there too, so the mask is the same. */
+#ifndef O_ACCMODE
+#define O_ACCMODE (O_RDONLY | O_WRONLY | O_RDWR)
+#endif
+
+/* Return 1 if any component of path is exactly "..". Matches "/..", "/../x"
+ * and a trailing "/..", but not "/a/..b". */
+FIO_STATIC int fio_path_has_dotdot(const char *path) {
+    const char *p = path;
+    while ((p = strstr(p, "/..")) != NULL) {
+        if (p[3] == '/' || p[3] == '\0') return 1;
+        p += 3;
+    }
+    return 0;
+}
+
+/* Parse an absolute-path prefix list separated like PATH (':' on POSIX, ';' on
+ * Windows) into `out`. Trailing slashes are stripped so the component-boundary
+ * test in fio_path_matches sees a bare prefix. Relative or over-long entries
+ * are dropped with a warning — silently ignoring them would present as an
+ * unexplained throughput loss much later. */
+FIO_STATIC void fio_parse_prefix_list(const char *spec, const char *varname,
+                                      char (*out)[FIO_MAX_PREFIX_LEN], int *count) {
+    *count = 0;
+    if (!spec || spec[0] == '\0') return;
+
+#ifdef _WIN32
+    const char sep = ';';
+#else
+    const char sep = ':';
+#endif
+
+    const char *p = spec;
+    while (*p != '\0' && *count < FIO_MAX_PREFIXES) {
+        const char *end = strchr(p, sep);
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+
+        while (len > 1 && p[len - 1] == '/') len--;
+
+        if (len == 0) {
+            /* empty element — skip silently, "a::b" is a typo not an error */
+        } else if (p[0] != '/') {
+            fprintf(stderr, "fio: ignoring relative %s entry \"%.*s\"\n",
+                    varname, (int)len, p);
+        } else if (len >= FIO_MAX_PREFIX_LEN) {
+            fprintf(stderr, "fio: ignoring over-long %s entry (%zu bytes)\n", varname, len);
+        } else {
+            char *slot = out[(*count)++];
+            memcpy(slot, p, len);
+            slot[len] = '\0';
+        }
+
+        if (!end) break;
+        p = end + 1;
+    }
+}
+
+FIO_STATIC void fio_parse_local_prefixes(const char *spec) {
+    fio_parse_prefix_list(spec, "FFOIP_SHORT_CIRCUIT_READ",
+                          fio_state.local_prefixes, &fio_state.local_prefix_count);
+}
+
+FIO_STATIC void fio_parse_local_write_prefixes(const char *spec) {
+    fio_parse_prefix_list(spec, "FFOIP_SHORT_CIRCUIT_WRITE",
+                          fio_state.local_write_prefixes, &fio_state.local_write_prefix_count);
+}
+
+/* Return 1 when path should be opened from the server's own filesystem.
+ *
+ * Matching is on whole path components, so "/media" matches "/media/a.mkv"
+ * but not "/mediafoo/a.mkv". Paths containing a ".." component are refused
+ * rather than normalized: realpath() cannot resolve a path that does not
+ * exist yet, and a hand-rolled lexical normalizer is easy to get subtly
+ * wrong. Refusing costs a tunneled open — slower, never incorrect. */
+FIO_STATIC int fio_path_matches(const char (*prefixes)[FIO_MAX_PREFIX_LEN],
+                                int count, const char *path) {
+    if (count == 0) return 0;
+    if (!path || path[0] != '/') return 0;
+    if (fio_path_has_dotdot(path)) return 0;
+
+    for (int i = 0; i < count; i++) {
+        size_t n = strlen(prefixes[i]);
+        if (n == 1) return 1; /* "/" — the whole filesystem is shared */
+        if (strncmp(path, prefixes[i], n) != 0) continue;
+        if (path[n] == '/' || path[n] == '\0') return 1;
+    }
+    return 0;
+}
+
+FIO_STATIC int fio_path_is_local(const char *path) {
+    return fio_path_matches(fio_state.local_prefixes,
+                            fio_state.local_prefix_count, path);
+}
+
+FIO_STATIC int fio_path_is_local_write(const char *path) {
+    return fio_path_matches(fio_state.local_write_prefixes,
+                            fio_state.local_write_prefix_count, path);
+}
+
 static void fio_init(void) {
     memset(&fio_state, 0, sizeof(fio_state));
     fio_state.sock_fd = -1;
@@ -1349,6 +1460,9 @@ static void fio_init(void) {
                     range_cache_str, fio_state.range_cache_max_bytes);
         }
     }
+
+    fio_parse_local_prefixes(getenv("FFOIP_SHORT_CIRCUIT_READ"));
+    fio_parse_local_write_prefixes(getenv("FFOIP_SHORT_CIRCUIT_WRITE"));
 
     const char *port_str = getenv("FFOIP_PORT");
     if (!port_str || port_str[0] == '\0') {
@@ -1502,6 +1616,28 @@ int fio_open(const char *path, int flags, mode_t mode) {
 
     if (fio_state.initialized == 1) {
         return open(path, flags, mode);
+    }
+
+    /* Short-circuit: an open under a declared prefix is served from this host's
+     * own filesystem instead of the tunnel, removing a leg of I/O. Reads and
+     * writes have separate lists because they are separate decisions — a
+     * shared media mount says nothing about where transcode output belongs.
+     *
+     * The returned fd is a real one, and every fd-taking fio_* entry point
+     * already routes real fds to the plain syscall via is_real_fd(), so nothing
+     * downstream needs to know this happened.
+     *
+     * The lists are declarations: the operator has told us this path is
+     * reachable here. If the open fails anyway we fall back to the tunnel
+     * rather than failing the transcode, matching how HDFS and Alluxio treat
+     * short-circuit access. Correctness never depends on the declaration being
+     * right — only throughput does. */
+    int want_local = ((flags & O_ACCMODE) == O_RDONLY && !(flags & (O_CREAT | O_TRUNC)))
+                         ? fio_path_is_local(path)
+                         : fio_path_is_local_write(path);
+    if (want_local) {
+        int local_fd = open(path, flags, mode);
+        if (local_fd >= 0) return local_fd;
     }
 
     uint32_t wire_flags = flags_to_wire(flags);

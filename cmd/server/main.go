@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/steelbrain/ffmpeg-over-ip/internal/auth"
@@ -46,6 +47,19 @@ func main() {
 	exeDir := filepath.Dir(exePath)
 	ffmpegPath := filepath.Join(exeDir, "ffmpeg")
 	ffprobePath := filepath.Join(exeDir, "ffprobe")
+
+	// Validate shared-storage prefixes once at startup rather than per session:
+	// an unmounted share would otherwise fail every transcode with ENOENT.
+	shortCircuitRead, shortCircuitWrite, err := cfg.ResolveShortCircuitPaths()
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	if len(shortCircuitRead) > 0 {
+		log.Printf("serving reads locally for: %s", strings.Join(shortCircuitRead, ", "))
+	}
+	if len(shortCircuitWrite) > 0 {
+		log.Printf("serving writes locally for: %s", strings.Join(shortCircuitWrite, ", "))
+	}
 
 	// Set up signal-aware context
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -85,11 +99,11 @@ func main() {
 			continue
 		}
 
-		go handleConnection(ctx, conn, cfg, ffmpegPath, ffprobePath)
+		go handleConnection(ctx, conn, cfg, ffmpegPath, ffprobePath, shortCircuitRead, shortCircuitWrite)
 	}
 }
 
-func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConfig, ffmpegPath, ffprobePath string) {
+func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConfig, ffmpegPath, ffprobePath string, shortCircuitRead, shortCircuitWrite []string) {
 	defer conn.Close()
 
 	// Read command message
@@ -140,6 +154,7 @@ func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConf
 
 	// Start process
 	proc := process.NewProcess(binaryPath, args)
+	proc.SetShortCircuitPaths(shortCircuitRead, shortCircuitWrite)
 	if err := proc.Start(ctx); err != nil {
 		sendError(conn, fmt.Sprintf("failed to start process: %v", err))
 		return

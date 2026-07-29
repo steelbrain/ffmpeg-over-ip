@@ -1,0 +1,8 @@
+.git
+.github
+build
+third_party
+vendor
+artifacts
+scratch
+*.tar.gz

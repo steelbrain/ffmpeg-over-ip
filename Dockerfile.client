@@ -1,0 +1,19 @@
+# Multi-stage Dockerfile for ffmpeg-over-ip client wrapper
+
+# Step 1: Build Go client binary
+FROM golang:1.24-alpine AS go-builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /ffmpeg-over-ip-client ./cmd/client
+
+# Step 2: Final runtime container image
+FROM alpine:latest AS runtime
+RUN apk add --no-cache ca-certificates tzdata
+
+COPY --from=go-builder /ffmpeg-over-ip-client /usr/bin/ffmpeg-over-ip-client
+COPY --from=go-builder /ffmpeg-over-ip-client /usr/bin/ffmpeg
+
+# Default entrypoint runs the client
+ENTRYPOINT ["/usr/bin/ffmpeg-over-ip-client"]

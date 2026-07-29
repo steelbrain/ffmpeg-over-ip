@@ -1,0 +1,33 @@
+# Multi-stage Dockerfile for ffmpeg-over-ip server daemon
+
+# Step 1: Build Go server binary
+FROM golang:1.24-alpine AS go-builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /ffmpeg-over-ip-server ./cmd/server
+
+# Step 2: Build C stub binary for test/demo container execution
+FROM alpine:latest AS c-builder
+RUN apk add --no-cache gcc musl-dev make
+WORKDIR /src
+COPY . .
+RUN gcc -O2 -o /ffmpeg tests/localstub/stub.c fio/fio.c -Ifio -lpthread
+
+# Step 3: Final runtime container image
+FROM alpine:latest AS runtime
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /opt/ffmpeg-over-ip
+COPY --from=go-builder /ffmpeg-over-ip-server /opt/ffmpeg-over-ip/ffmpeg-over-ip-server
+COPY --from=c-builder /ffmpeg /opt/ffmpeg-over-ip/ffmpeg
+
+# Default environment variables
+ENV FFMPEG_OVER_IP_SERVER_ADDRESS="0.0.0.0:5050"
+ENV FFMPEG_OVER_IP_SERVER_AUTH_SECRET=""
+ENV FFMPEG_OVER_IP_SERVER_SHORT_CIRCUIT_READ=""
+ENV FFMPEG_OVER_IP_SERVER_SHORT_CIRCUIT_WRITE=""
+
+EXPOSE 5050
+ENTRYPOINT ["/opt/ffmpeg-over-ip/ffmpeg-over-ip-server"]

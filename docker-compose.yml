@@ -1,0 +1,32 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: ffmpeg-over-ip-server
+    environment:
+      FFMPEG_OVER_IP_SERVER_ADDRESS: "0.0.0.0:5050"
+      FFMPEG_OVER_IP_SERVER_AUTH_SECRET: "compose_secret_12345"
+      FFMPEG_OVER_IP_SERVER_SHORT_CIRCUIT_READ: "/media"
+    volumes:
+      - shared-data:/media
+    ports:
+      - "5055:5050"
+
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: ffmpeg-over-ip-client
+    environment:
+      FFMPEG_OVER_IP_CLIENT_ADDRESS: "server:5050"
+      FFMPEG_OVER_IP_CLIENT_AUTH_SECRET: "compose_secret_12345"
+      FFMPEG_OVER_IP_CLIENT_FALLBACK_TO_LOCAL: "false"
+    volumes:
+      - shared-data:/media
+    depends_on:
+      - server
+    entrypoint: ["sh", "-c", "echo 'DOCKER-CONTAINER-SHORT-CIRCUIT-DATA' > /media/test_shared.txt && /usr/bin/ffmpeg-over-ip-client -i /media/test_shared.txt"]
+
+volumes:
+  shared-data:

@@ -9,9 +9,15 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/tidwall/jsonc"
 )
+
+// DefaultDialTimeout bounds a single connection attempt. It matters most when
+// an endpoint is blackholed rather than refusing: without it the OS SYN retry
+// schedule (~2 minutes) delays the local-ffmpeg fallback by that long.
+const DefaultDialTimeout = 5 * time.Second
 
 // LogValue is a string that also accepts JSON boolean false (meaning "disable logging").
 type LogValue string
@@ -34,16 +40,126 @@ type ServerConfig struct {
 	Address    string      `json:"address"`
 	AuthSecret string      `json:"authSecret"`
 	Rewrites   [][2]string `json:"rewrites"`
-	Debug      bool        `json:"debug"`
+	// LocalPrefixes is an alias for ShortCircuitRead maintained for backwards compatibility.
+	LocalPrefixes     []string `json:"localPrefixes"`
+	ShortCircuitRead  []string `json:"shortCircuitRead"`
+	ShortCircuitWrite []string `json:"shortCircuitWrite"`
+	Debug             bool     `json:"debug"`
+}
+
+// ResolveShortCircuitPaths validates declared read and write short-circuit prefixes.
+func (c *ServerConfig) ResolveShortCircuitPaths() (readPaths []string, writePaths []string, err error) {
+	reads := c.ShortCircuitRead
+	if len(reads) == 0 && len(c.LocalPrefixes) > 0 {
+		reads = c.LocalPrefixes
+	}
+
+	readPaths, err = cleanAndValidatePrefixes("shortCircuitRead", reads)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	writePaths, err = cleanAndValidatePrefixes("shortCircuitWrite", c.ShortCircuitWrite)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return readPaths, writePaths, nil
+}
+
+// ResolveLocalPrefixes is maintained for backwards compatibility.
+func (c *ServerConfig) ResolveLocalPrefixes() ([]string, error) {
+	reads, _, err := c.ResolveShortCircuitPaths()
+	return reads, err
+}
+
+func cleanAndValidatePrefixes(name string, prefixes []string) ([]string, error) {
+	if len(prefixes) == 0 {
+		return nil, nil
+	}
+
+	out := make([]string, 0, len(prefixes))
+	for _, p := range prefixes {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if !filepath.IsAbs(p) {
+			return nil, fmt.Errorf("config: %s entry %q is not an absolute path", name, p)
+		}
+		info, err := os.Stat(p)
+		if err != nil {
+			return nil, fmt.Errorf("config: %s entry %q is unusable: %w", name, p, err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("config: %s entry %q is not a directory", name, p)
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// SplitPathList splits an OS path-list string (':' on POSIX, ';' on Windows)
+// into entries, dropping empties. Matches how fio parses FFOIP_LOCAL_PREFIXES.
+func SplitPathList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	out := make([]string, 0, 4)
+	for _, p := range filepath.SplitList(s) {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 type ClientConfig struct {
-	Log              LogValue    `json:"log"`
+	Log LogValue `json:"log"`
+	// Address is one address, or a comma-separated list of them. With more
+	// than one the client dials all of them at once and keeps whichever
+	// answers first — see Addresses.
 	Address          string      `json:"address"`
 	AuthSecret       string      `json:"authSecret"`
+	DialTimeout      string      `json:"dialTimeout"`
 	FallbackToLocal  bool        `json:"fallbackToLocal"`
 	FallbackRewrites [][2]string `json:"fallbackRewrites"`
 	Debug            bool        `json:"debug"`
+}
+
+// Addresses returns the configured server addresses in declaration order.
+// Ordering carries no priority — the client races them — but it is preserved
+// so error messages read the way the config does.
+func (c *ClientConfig) Addresses() []string {
+	return SplitAddresses(c.Address)
+}
+
+// SplitAddresses splits a comma-separated address list, trimming surrounding
+// whitespace and dropping empty entries.
+func SplitAddresses(address string) []string {
+	parts := strings.Split(address, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// DialTimeoutDuration returns the per-attempt dial timeout. Unset or
+// unparseable yields DefaultDialTimeout; an explicit "0" disables the timeout
+// and leaves the deadline to the OS.
+func (c *ClientConfig) DialTimeoutDuration() time.Duration {
+	if c.DialTimeout == "" {
+		return DefaultDialTimeout
+	}
+	d, err := time.ParseDuration(c.DialTimeout)
+	if err != nil || d < 0 {
+		log.Printf("invalid dialTimeout %q, using %s", c.DialTimeout, DefaultDialTimeout)
+		return DefaultDialTimeout
+	}
+	return d
 }
 
 // LoadServerConfig loads the server config. If explicitPath is non-empty, it
@@ -96,6 +212,9 @@ func LoadClientConfig(explicitPath string) (*ClientConfig, error) {
 	if cfg.Address == "" {
 		return nil, fmt.Errorf("config: address is required")
 	}
+	if len(cfg.Addresses()) == 0 {
+		return nil, fmt.Errorf("config: address %q contains no usable entries", cfg.Address)
+	}
 	if cfg.AuthSecret == "" {
 		return nil, fmt.Errorf("config: authSecret is required")
 	}
@@ -110,11 +229,20 @@ func serverConfigFromEnv() *ServerConfig {
 	if address == "" || authSecret == "" {
 		return nil
 	}
+	reads := SplitPathList(os.Getenv("FFMPEG_OVER_IP_SERVER_SHORT_CIRCUIT_READ"))
+	if len(reads) == 0 {
+		reads = SplitPathList(os.Getenv("FFMPEG_OVER_IP_SERVER_LOCAL_PREFIXES"))
+	}
+	writes := SplitPathList(os.Getenv("FFMPEG_OVER_IP_SERVER_SHORT_CIRCUIT_WRITE"))
+
 	return &ServerConfig{
-		Address:    address,
-		AuthSecret: authSecret,
-		Log:        LogValue(os.Getenv("FFMPEG_OVER_IP_SERVER_LOG")),
-		Debug:      parseLaxBool(os.Getenv("FFMPEG_OVER_IP_SERVER_DEBUG")),
+		Address:           address,
+		AuthSecret:        authSecret,
+		Log:               LogValue(os.Getenv("FFMPEG_OVER_IP_SERVER_LOG")),
+		LocalPrefixes:     reads,
+		ShortCircuitRead:  reads,
+		ShortCircuitWrite: writes,
+		Debug:             parseLaxBool(os.Getenv("FFMPEG_OVER_IP_SERVER_DEBUG")),
 	}
 }
 
@@ -130,6 +258,7 @@ func clientConfigFromEnv() *ClientConfig {
 		Address:         address,
 		AuthSecret:      authSecret,
 		Log:             LogValue(os.Getenv("FFMPEG_OVER_IP_CLIENT_LOG")),
+		DialTimeout:     os.Getenv("FFMPEG_OVER_IP_CLIENT_DIAL_TIMEOUT"),
 		FallbackToLocal: parseLaxBool(os.Getenv("FFMPEG_OVER_IP_CLIENT_FALLBACK_TO_LOCAL")),
 		Debug:           parseLaxBool(os.Getenv("FFMPEG_OVER_IP_CLIENT_DEBUG")),
 	}

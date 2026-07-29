@@ -19,8 +19,9 @@ If both `ADDRESS` and `AUTH_SECRET` env vars are set (and no `_CONFIG` env var i
 
 | Variable | Required | Description |
 |---|---|---|
-| `FFMPEG_OVER_IP_CLIENT_ADDRESS` | Yes | Server address (`host:port` or `unix:/path`) |
+| `FFMPEG_OVER_IP_CLIENT_ADDRESS` | Yes | Server address (`host:port` or `unix:/path`). Comma-separated for [multiple servers](#multiple-servers) |
 | `FFMPEG_OVER_IP_CLIENT_AUTH_SECRET` | Yes | HMAC auth secret (must match server) |
+| `FFMPEG_OVER_IP_CLIENT_DIAL_TIMEOUT` | No | Per-attempt connect timeout, e.g. `5s`, `1500ms`. `0` defers to the OS. Default `5s` |
 | `FFMPEG_OVER_IP_CLIENT_LOG` | No | Log destination: `stdout`, `stderr`, or file path |
 | `FFMPEG_OVER_IP_CLIENT_FALLBACK_TO_LOCAL` | No | Run local ffmpeg if the server is unreachable (`true`, `1`, `yes`, `y` — case-insensitive) |
 | `FFMPEG_OVER_IP_CLIENT_DEBUG` | No | Log original/rewritten args when fallback runs (`true`, `1`, `yes`, `y` — case-insensitive) |
@@ -32,9 +33,86 @@ If both `ADDRESS` and `AUTH_SECRET` env vars are set (and no `_CONFIG` env var i
 | `FFMPEG_OVER_IP_SERVER_ADDRESS` | Yes | Listen address (`host:port` or `unix:/path`) |
 | `FFMPEG_OVER_IP_SERVER_AUTH_SECRET` | Yes | HMAC auth secret (must match client) |
 | `FFMPEG_OVER_IP_SERVER_LOG` | No | Log destination: `stdout`, `stderr`, or file path |
+| `FFMPEG_OVER_IP_SERVER_LOCAL_PREFIXES` | No | Paths this server reads from its own filesystem — see [Shared Storage](#shared-storage). `:`-separated (`;` on Windows) |
 | `FFMPEG_OVER_IP_SERVER_DEBUG` | No | Log original/rewritten args (`true`, `1`, `yes`, `y` — case-insensitive) |
 
 Rewrites (server `rewrites` and client `fallbackRewrites`) are not supported via environment variables — use a config file if you need them.
+
+## Shared Storage
+
+By default the server's ffmpeg tunnels every file operation back to the client,
+so no shared storage is needed anywhere. When the server *does* have the media
+mounted at the same path the client sees, `localPrefixes` lets it read those
+files directly:
+
+```jsonc
+"localPrefixes": ["/media"]
+```
+
+```bash
+FFMPEG_OVER_IP_SERVER_LOCAL_PREFIXES=/media
+```
+
+This removes one leg of I/O. Instead of `storage -> client -> server`, source
+bytes travel `storage -> server`, and the client is no longer a relay for data
+it never looks at.
+
+The rule is one sentence: **read-only opens under a declared prefix are served
+from the server's own filesystem; everything else tunnels to the client.**
+
+- **Paths must be identical on both hosts.** Nothing translates them. If the
+  client asks for `/media/movies/a.mkv`, the server opens exactly that path.
+- **Matching is on whole path components.** `/media` covers `/media/movies` but
+  never `/mediafoo`. Paths containing a `..` component are refused and tunnel.
+- **Writes are never local**, even to a declared prefix. The client is the only
+  host whose filesystem the calling media server can read back, so a
+  server-side write would land where nothing can serve it. This is enforced,
+  not just documented — so listing an output directory by mistake cannot
+  corrupt a transcode, it just does nothing.
+- **Reads outside the list still tunnel**, which is what keeps client-only
+  paths (subtitle attachments, fonts) working with no extra configuration.
+- **A declaration is not a hint.** A missing file under a declared prefix fails
+  with `ENOENT` naming the file; it is never retried over the tunnel. Silently
+  falling back would turn a broken mount into an unexplained slowdown instead
+  of an error.
+- The server checks each prefix is a directory at startup and exits if not.
+  That catches a typo or a never-mounted share at deploy time. It proves
+  nothing about steady state — a share that goes stale later is not detected,
+  by design. Refusing to start is safe: the client's dial then fails, which is
+  exactly the path that triggers its `fallbackToLocal`.
+
+Mixed fleets need no client configuration. A client cannot tell a
+shared-storage server from a tunneling one, so endpoints with and without
+local storage can be listed together.
+
+## Multiple Servers
+
+The client's `address` accepts a comma-separated list. Every entry is dialed at
+the same time, the first connection to come up wins, and the rest are cancelled
+and closed:
+
+```jsonc
+"address": "192.168.1.100:5050, 192.168.1.101:5050"
+```
+
+```bash
+FFMPEG_OVER_IP_CLIENT_ADDRESS=192.168.1.100:5050,192.168.1.101:5050
+```
+
+Notes:
+
+- Only the connection is raced. The signed command is sent after a winner is
+  picked, so a transcode never starts on more than one server.
+- Order is not priority. The winner is whichever completes its TCP handshake
+  first, which on a LAN mostly means "whichever is up" — this is failover
+  across interchangeable transcode nodes, not load balancing across busy ones.
+- `fallbackToLocal` triggers only once *every* address has failed.
+- Failover happens at connect time only. A server that dies mid-transcode is
+  still fatal, same as with a single address.
+- `dialTimeout` bounds each attempt. It matters when an endpoint is blackholed
+  rather than refusing — without it, one powered-off node delays the local
+  fallback by the OS SYN retry schedule (~2 minutes).
+- Mixed transports are fine: `unix:/tmp/f.sock, 192.168.1.100:5050`.
 
 ### Example (Docker / scripted deployment)
 
