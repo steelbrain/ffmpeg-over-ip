@@ -17,8 +17,20 @@
   // "address": "server.example.com:5050"           // Connect to a remote server
   // "address": "unix:/tmp/ffmpeg-over-ip.sock"     // Connect using Unix socket
 
+  // Comma-separate several addresses to dial them all at once and keep
+  // whichever answers first — the losers are cancelled and closed. Order is
+  // not priority; this is failover across interchangeable servers, not load
+  // balancing. Only the connection is raced, so a transcode never starts
+  // twice. "fallbackToLocal" kicks in only when every address has failed.
+  // "address": "192.168.1.20:5050, 192.168.1.21:5050"
+
   "authSecret": "YOUR-CLIENT-PASSWORD-HERE", // type: string
   // ^ This MUST match what you have in the server
+
+  // Optional: how long a single connection attempt may take before it is
+  // given up on. Defaults to "5s"; "0" defers to the OS (which retries SYNs
+  // for ~2 minutes against a blackholed host, delaying fallback that long).
+  "dialTimeout": "5s", // type: string, format: Go duration ("5s", "1500ms")
 
   // Optional: when true, fall back to running the host's local ffmpeg
   // (looked up on $PATH) if the server is unreachable. Useful for media
