@@ -5,7 +5,7 @@ Use GPU-accelerated ffmpeg from anywhere — a Docker container, a VM, or a remo
 ## Key Features
 
 - **Network-Transparent File I/O**: Access media files on remote clients via standard TCP loopback tunneling (`fio`).
-- **Shared Storage Short-Circuiting**: Automatically bypass network tunneling (`65x+` speedup) when both client and server share a storage mount (e.g. `/media`, NFS, Ceph, SeaweedFS).
+- **Shared Storage Short-Circuiting**: Automatically bypasses network tunneling when both client and server share a storage mount (e.g. `/media`, NFS, Ceph, SeaweedFS), opening files directly off local disk.
 - **Multi-Node Load Balancing & Fast Failover**: Define multiple transcode servers (`node1:5050, node2:5050`). The client automatically load-balances and fails over sequentially if a node goes down.
 - **Docker & Kubernetes Ready**: Containerized server/client images, Docker Compose setups, and drop-in Kubernetes manifests for Jellyfin and transcode DaemonSets.
 
