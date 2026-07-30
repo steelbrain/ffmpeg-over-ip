@@ -81,9 +81,14 @@
 /* Pending request slots */
 #define FIO_MAX_PENDING  64
 
-/* Minimal short-circuit: read-only opens under FFOIP_SHORT_CIRCUIT_READ are served locally */
-#define FIO_MAX_PREFIXES 16
-#define FIO_MAX_PREFIX_LEN 512
+/* Short-circuit: RO media (verified) and RW shared (full ops) for transcode cache.
+ * RO: read-only opens under prefix may be served locally if verified.
+ * RW: any open under prefix is local if contained — for shared /cache. */
+#define FIO_MAX_PREFIXES     16
+#define FIO_MAX_PREFIX_LEN   512
+#ifndef O_ACCMODE
+#define O_ACCMODE (O_RDONLY|O_WRONLY|O_RDWR)
+#endif
 
 /* Sequential read-ahead. This cuts request/response round trips for readers
  * like FFmpeg's AVIO layer that commonly pull 32 KiB at a time. */
@@ -180,7 +185,7 @@ typedef struct {
 } fio_pending_t;
 
 static struct {
-    int               initialized;  /* 0=uninit, 1=passthrough, 2=tunneled */
+    int               initialized;
     int               sock_fd;
     uint16_t          next_file_id;
     uint16_t          next_req_id;
@@ -192,6 +197,13 @@ static struct {
     uint32_t          range_cache_max_bytes;
     char              local_prefixes[FIO_MAX_PREFIXES][FIO_MAX_PREFIX_LEN];
     int               local_prefix_count;
+    char              shared_prefixes[FIO_MAX_PREFIXES][FIO_MAX_PREFIX_LEN];
+    int               shared_prefix_count;
+    uint64_t          sc_hits;
+    uint64_t          sc_misses;
+    uint64_t          sc_fallbacks;
+    uint64_t          sc_verify_fail;
+    uint64_t          sc_shared_hits;
     fio_vfd_t         vfds[FIO_MAX_FILES];
     fio_pending_t     pending[FIO_MAX_PENDING];
     pthread_t         reader_thread;
@@ -1312,6 +1324,161 @@ static int vfd_sync_remote_offset(fio_vfd_t *vfd) {
  * J. Lazy Init
  * ====================================================================== */
 
+/* O_ACCMODE is POSIX; MSVC's fcntl.h omits it. O_RDONLY/O_WRONLY/O_RDWR are
+ * 0/1/2 there too, so the mask is the same. */
+#ifndef O_ACCMODE
+#define O_ACCMODE (O_RDONLY | O_WRONLY | O_RDWR)
+#endif
+
+FIO_STATIC int fio_path_has_dotdot(const char *path) {
+    const char *p = path;
+    while ((p = strstr(p, "/..")) != NULL) {
+        if (p[3] == '/' || p[3] == '\0') return 1;
+        p += 3;
+    }
+    return 0;
+}
+
+FIO_STATIC void fio_parse_prefix_list(const char *spec,
+                                      char (*out)[FIO_MAX_PREFIX_LEN], int *count) {
+    *count = 0;
+    if (!spec || spec[0] == '\0') return;
+#ifdef _WIN32
+    const char sep = ';';
+#else
+    const char sep = ':';
+#endif
+    const char *p = spec;
+    int total = 0;
+    while (*p != '\0') {
+        const char *end = strchr(p, sep);
+        const char *comma = strchr(p, ',');
+        if (comma && (!end || comma < end)) end = comma;
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        while (len > 1 && p[len - 1] == '/') len--;
+        if (len == 0) {
+        } else if (p[0] != '/' || len >= FIO_MAX_PREFIX_LEN) {
+        } else if (*count < FIO_MAX_PREFIXES) {
+            char *slot = out[(*count)++];
+            memcpy(slot, p, len);
+            slot[len] = '\0';
+        }
+        total++;
+        if (!end) break;
+        p = end + 1;
+    }
+    if (total > FIO_MAX_PREFIXES) {
+        fprintf(stderr, "fio: prefix list has %d entries, only first %d kept\n", total, FIO_MAX_PREFIXES);
+    }
+}
+
+FIO_STATIC void fio_parse_local_prefixes(const char *spec) {
+    fio_parse_prefix_list(spec, fio_state.local_prefixes, &fio_state.local_prefix_count);
+}
+
+FIO_STATIC void fio_parse_shared_prefixes(const char *spec) {
+    fio_parse_prefix_list(spec, fio_state.shared_prefixes, &fio_state.shared_prefix_count);
+}
+
+FIO_STATIC int fio_path_matches(const char (*prefixes)[FIO_MAX_PREFIX_LEN],
+                                int count, const char *path) {
+    if (count == 0) return 0;
+    if (!path || path[0] != '/') return 0;
+    if (fio_path_has_dotdot(path)) return 0;
+    for (int i = 0; i < count; i++) {
+        size_t n = strlen(prefixes[i]);
+        if (n == 1) return 1;
+        if (strncmp(path, prefixes[i], n) != 0) continue;
+        if (path[n] == '/' || path[n] == '\0') return 1;
+    }
+    return 0;
+}
+
+FIO_STATIC int fio_path_is_local(const char *path) {
+    return fio_path_matches(fio_state.local_prefixes, fio_state.local_prefix_count, path);
+}
+
+FIO_STATIC int fio_path_is_shared(const char *path) {
+    return fio_path_matches(fio_state.shared_prefixes, fio_state.shared_prefix_count, path);
+}
+
+FIO_STATIC int fio_verify_fd_containment(int fd, const char *requested_path) {
+    char resolved[4096];
+    int ok = 0;
+#ifdef __APPLE__
+    if (fcntl(fd, F_GETPATH, resolved) == 0) ok = 1;
+#else
+    {
+        char proc_link[64];
+        snprintf(proc_link, sizeof(proc_link), "/proc/self/fd/%d", fd);
+        ssize_t n = readlink(proc_link, resolved, sizeof(resolved)-1);
+        if (n > 0) { resolved[n] = '\0'; ok = 1; }
+    }
+#endif
+    if (!ok) {
+        if (!realpath(requested_path, resolved)) return 0;
+    }
+    for (int list = 0; list < 2; list++) {
+        int count = (list == 0) ? fio_state.local_prefix_count : fio_state.shared_prefix_count;
+        char (*prefixes)[FIO_MAX_PREFIX_LEN] = (list == 0) ? fio_state.local_prefixes : fio_state.shared_prefixes;
+        for (int i = 0; i < count; i++) {
+            char pre_real[4096];
+            const char *pre = prefixes[i];
+            if (!realpath(pre, pre_real)) {
+                strncpy(pre_real, pre, sizeof(pre_real)-1);
+                pre_real[sizeof(pre_real)-1] = '\0';
+            }
+            size_t n = strlen(pre_real);
+            if (n == 1 && pre_real[0] == '/') return 1;
+            if (strncmp(resolved, pre_real, n) != 0) continue;
+            if (resolved[n] == '/' || resolved[n] == '\0') return 1;
+        }
+    }
+    return 0;
+}
+
+FIO_STATIC int fio_verify_path_shared_containment(const char *path) {
+    char resolved[4096];
+    char to_check[4096];
+    if (realpath(path, resolved)) {
+        strncpy(to_check, resolved, sizeof(to_check)-1);
+    } else {
+        char *dup = strdup(path);
+        if (!dup) return 0;
+        char *slash = strrchr(dup, '/');
+        if (slash) {
+            if (slash == dup) strcpy(to_check, "/");
+            else {
+                *slash = '\0';
+                if (!realpath(dup, to_check)) strncpy(to_check, dup, sizeof(to_check)-1);
+                size_t len = strlen(to_check);
+                size_t base_len = strlen(slash+1);
+                if (len + 1 + base_len < sizeof(to_check)) {
+                    if (to_check[len-1] != '/') { to_check[len++] = '/'; to_check[len] = '\0'; }
+                    strncat(to_check, slash+1, sizeof(to_check)-len-1);
+                }
+            }
+        } else {
+            strncpy(to_check, path, sizeof(to_check)-1);
+        }
+        free(dup);
+        to_check[sizeof(to_check)-1] = '\0';
+    }
+    for (int i = 0; i < fio_state.shared_prefix_count; i++) {
+        char pre_real[4096];
+        const char *pre = fio_state.shared_prefixes[i];
+        if (!realpath(pre, pre_real)) {
+            strncpy(pre_real, pre, sizeof(pre_real)-1);
+            pre_real[sizeof(pre_real)-1] = '\0';
+        }
+        size_t n = strlen(pre_real);
+        if (n == 1 && pre_real[0] == '/') return 1;
+        if (strncmp(to_check, pre_real, n) != 0) continue;
+        if (to_check[n] == '/' || to_check[n] == '\0') return 1;
+    }
+    return 0;
+}
+
 static void fio_init(void) {
     memset(&fio_state, 0, sizeof(fio_state));
     fio_state.sock_fd = -1;
@@ -1356,24 +1523,11 @@ static void fio_init(void) {
         }
     }
 
-    /* Minimal short-circuit parse: colon or comma separated absolute prefixes */
-    const char *sc = getenv("FFOIP_SHORT_CIRCUIT_READ");
-    if (sc && sc[0]) {
-        const char *p = sc;
-        while (*p && fio_state.local_prefix_count < FIO_MAX_PREFIXES) {
-            const char *end = strchr(p, ':');
-            const char *comma = strchr(p, ',');
-            if (comma && (!end || comma < end)) end = comma;
-            size_t len = end ? (size_t)(end - p) : strlen(p);
-            while (len > 1 && p[len-1] == '/') len--;
-            if (len > 0 && len < FIO_MAX_PREFIX_LEN && p[0] == '/') {
-                memcpy(fio_state.local_prefixes[fio_state.local_prefix_count], p, len);
-                fio_state.local_prefixes[fio_state.local_prefix_count][len] = '\0';
-                fio_state.local_prefix_count++;
-            }
-            if (!end) break;
-            p = end + 1;
-        }
+    fio_parse_local_prefixes(getenv("FFOIP_SHORT_CIRCUIT_READ"));
+    {
+        const char *rw = getenv("FFOIP_SHORT_CIRCUIT_READ_WRITE");
+        if (!rw || rw[0] == '\0') rw = getenv("FFOIP_SHORT_CIRCUIT_SHARED");
+        fio_parse_shared_prefixes(rw);
     }
 
     const char *port_str = getenv("FFOIP_PORT");
@@ -1452,6 +1606,21 @@ static void fio_ensure_init(void) {
     pthread_once(&fio_once, fio_init);
 }
 
+__attribute__((destructor))
+static void fio_log_stats(void) {
+    if (fio_state.local_prefix_count == 0 && fio_state.shared_prefix_count == 0) return;
+    if (fio_state.sc_hits == 0 && fio_state.sc_fallbacks == 0 &&
+        fio_state.sc_verify_fail == 0 && fio_state.sc_misses == 0 &&
+        fio_state.sc_shared_hits == 0) return;
+    fprintf(stderr,
+            "fio: short-circuit stats: ro_hits=%llu shared_hits=%llu misses=%llu fallbacks=%llu verify_fail=%llu\n",
+            (unsigned long long)fio_state.sc_hits,
+            (unsigned long long)fio_state.sc_shared_hits,
+            (unsigned long long)fio_state.sc_misses,
+            (unsigned long long)fio_state.sc_fallbacks,
+            (unsigned long long)fio_state.sc_verify_fail);
+}
+
 #ifdef FIO_TESTING
 /* ======================================================================
  * J2. Test-only tunnel injection
@@ -1523,38 +1692,93 @@ void fio_test_teardown(void) {
  * K. Public API Functions
  * ====================================================================== */
 
-static int fio_is_local(const char *path) {
-    if (!path || path[0] != '/') return 0;
-    if (strstr(path, "/..")) {
-        /* refuse any .. component - slower but safe */
-        const char *p = path;
-        while ((p = strstr(p, "/..")) != NULL) {
-            if (p[3] == '/' || p[3] == '\0') return 0;
-            p += 3;
+static inline void fio_sc_count(volatile uint64_t *counter) {
+    __sync_fetch_and_add(counter, 1);
+}
+
+static int fio_remote_verify_and_close(const char *path, int64_t local_size, int *verified) {
+    *verified = 0;
+    pthread_mutex_lock(&fio_state.send_mutex);
+    uint16_t req_id = fio_state.next_req_id++;
+    uint16_t file_id = fio_state.next_file_id++;
+    pthread_mutex_unlock(&fio_state.send_mutex);
+    uint8_t buf[4096];
+    int n = encode_open_req(buf, sizeof(buf), req_id, file_id, FIO_O_RDONLY, 0, path);
+    if (n < 0) return -1;
+    int slot = send_and_wait(FIO_MSG_OPEN, buf, (uint32_t)n, req_id);
+    if (slot < 0) return -1;
+    int result = -1;
+    int64_t remote_size = -1;
+    if (fio_state.pending[slot].resp_type == FIO_MSG_OPEN_OK) {
+        if (decode_open_ok(fio_state.pending[slot].resp_payload, fio_state.pending[slot].resp_len, &(uint16_t){0}, &remote_size) == 0) {
+            result = 0;
+            *verified = (remote_size == local_size);
         }
     }
-    for (int i = 0; i < fio_state.local_prefix_count; i++) {
-        size_t n = strlen(fio_state.local_prefixes[i]);
-        if (n == 1) return 1;
-        if (strncmp(path, fio_state.local_prefixes[i], n) != 0) continue;
-        if (path[n] == '/' || path[n] == '\0') return 1;
+    free_pending(slot);
+    if (result == 0) {
+        pthread_mutex_lock(&fio_state.send_mutex);
+        uint16_t close_req = fio_state.next_req_id++;
+        pthread_mutex_unlock(&fio_state.send_mutex);
+        uint8_t cbuf[4];
+        encode_close_req(cbuf, sizeof(cbuf), close_req, file_id);
+        int cslot = send_and_wait(FIO_MSG_CLOSE, cbuf, 4, close_req);
+        if (cslot >= 0) free_pending(cslot);
     }
-    return 0;
+    return result;
 }
 
 int fio_open(const char *path, int flags, mode_t mode) {
     fio_ensure_init();
-
     if (fio_state.initialized == 1) {
         return open(path, flags, mode);
     }
 
-    /* Lazy short-circuit: RO opens under prefix try local first */
-    int is_ro = ((flags & 3) == 0) && !(flags & (O_CREAT|O_TRUNC));
-    if (is_ro && fio_is_local(path)) {
-        int fd = open(path, flags, mode);
-        if (fd >= 0) return fd;
-        /* if local open fails, fall back to tunnel */
+    /* RW shared: any open under shared prefix tries local with containment */
+    if (fio_path_is_shared(path)) {
+        int local_fd = open(path, flags, mode);
+        if (local_fd >= 0) {
+            if (!fio_verify_fd_containment(local_fd, path)) {
+                close(local_fd);
+                fio_sc_count(&fio_state.sc_fallbacks);
+            } else {
+                fio_sc_count(&fio_state.sc_shared_hits);
+                return local_fd;
+            }
+        } else {
+            fio_sc_count(&fio_state.sc_misses);
+        }
+    }
+
+    /* RO: only read-only, verified via size check */
+    int is_ro = ((flags & O_ACCMODE) == O_RDONLY) && !(flags & (O_CREAT | O_TRUNC));
+    if (is_ro && fio_path_is_local(path)) {
+        int local_fd = open(path, flags, mode);
+        if (local_fd >= 0) {
+            struct stat st;
+            if (fstat(local_fd, &st) != 0) {
+                close(local_fd);
+                fio_sc_count(&fio_state.sc_fallbacks);
+            } else if (!fio_verify_fd_containment(local_fd, path)) {
+                close(local_fd);
+                fio_sc_count(&fio_state.sc_fallbacks);
+            } else {
+                int verified = 0;
+                int vr = fio_remote_verify_and_close(path, (int64_t)st.st_size, &verified);
+                if (vr == 0 && verified) {
+                    fio_sc_count(&fio_state.sc_hits);
+                    return local_fd;
+                }
+                close(local_fd);
+                if (vr == 0 && !verified) {
+                    fio_sc_count(&fio_state.sc_verify_fail);
+                } else {
+                    fio_sc_count(&fio_state.sc_fallbacks);
+                }
+            }
+        } else {
+            fio_sc_count(&fio_state.sc_misses);
+        }
     }
 
     uint32_t wire_flags = flags_to_wire(flags);
@@ -1986,22 +2210,24 @@ int fio_ftruncate(int fd, off_t length) {
 
 int fio_unlink(const char *path) {
     fio_ensure_init();
-
     if (fio_state.initialized == 1) {
         return unlink(path);
     }
-
+    if (fio_path_is_shared(path) && fio_verify_path_shared_containment(path)) {
+        int rc = unlink(path);
+        if (rc == 0) {
+            fio_sc_count(&fio_state.sc_shared_hits);
+            return 0;
+        }
+    }
     pthread_mutex_lock(&fio_state.send_mutex);
     uint16_t req_id = fio_state.next_req_id++;
     pthread_mutex_unlock(&fio_state.send_mutex);
-
     uint8_t buf[4096];
     int n = encode_unlink_req(buf, sizeof(buf), req_id, path);
     if (n < 0) { errno = ENAMETOOLONG; return -1; }
-
     int slot = send_and_wait(FIO_MSG_UNLINK, buf, (uint32_t)n, req_id);
     if (slot < 0) return -1;
-
     int result;
     if (fio_state.pending[slot].resp_type == FIO_MSG_IO_ERROR) {
         int32_t wire_err = FIO_EIO;
@@ -2012,29 +2238,32 @@ int fio_unlink(const char *path) {
     } else {
         result = 0;
     }
-
     free_pending(slot);
     return result;
 }
 
 int fio_rename(const char *oldpath, const char *newpath) {
     fio_ensure_init();
-
     if (fio_state.initialized == 1) {
         return rename(oldpath, newpath);
     }
-
+    if (fio_path_is_shared(oldpath) && fio_path_is_shared(newpath) &&
+        fio_verify_path_shared_containment(oldpath) &&
+        fio_verify_path_shared_containment(newpath)) {
+        int rc = rename(oldpath, newpath);
+        if (rc == 0) {
+            fio_sc_count(&fio_state.sc_shared_hits);
+            return 0;
+        }
+    }
     pthread_mutex_lock(&fio_state.send_mutex);
     uint16_t req_id = fio_state.next_req_id++;
     pthread_mutex_unlock(&fio_state.send_mutex);
-
     uint8_t buf[8192];
     int n = encode_rename_req(buf, sizeof(buf), req_id, oldpath, newpath);
     if (n < 0) { errno = ENAMETOOLONG; return -1; }
-
     int slot = send_and_wait(FIO_MSG_RENAME, buf, (uint32_t)n, req_id);
     if (slot < 0) return -1;
-
     int result;
     if (fio_state.pending[slot].resp_type == FIO_MSG_IO_ERROR) {
         int32_t wire_err = FIO_EIO;
@@ -2045,14 +2274,12 @@ int fio_rename(const char *oldpath, const char *newpath) {
     } else {
         result = 0;
     }
-
     free_pending(slot);
     return result;
 }
 
 int fio_mkdir(const char *path, mode_t mode) {
     fio_ensure_init();
-
     if (fio_state.initialized == 1) {
 #ifdef _WIN32
         (void)mode;
@@ -2061,18 +2288,27 @@ int fio_mkdir(const char *path, mode_t mode) {
         return mkdir(path, mode);
 #endif
     }
-
+    if (fio_path_is_shared(path) && fio_verify_path_shared_containment(path)) {
+        int rc;
+#ifdef _WIN32
+        (void)mode;
+        rc = _mkdir(path);
+#else
+        rc = mkdir(path, mode);
+#endif
+        if (rc == 0) {
+            fio_sc_count(&fio_state.sc_shared_hits);
+            return 0;
+        }
+    }
     pthread_mutex_lock(&fio_state.send_mutex);
     uint16_t req_id = fio_state.next_req_id++;
     pthread_mutex_unlock(&fio_state.send_mutex);
-
     uint8_t buf[4096];
     int n = encode_mkdir_req(buf, sizeof(buf), req_id, (uint16_t)(mode & 0xFFFF), path);
     if (n < 0) { errno = ENAMETOOLONG; return -1; }
-
     int slot = send_and_wait(FIO_MSG_MKDIR, buf, (uint32_t)n, req_id);
     if (slot < 0) return -1;
-
     int result;
     if (fio_state.pending[slot].resp_type == FIO_MSG_IO_ERROR) {
         int32_t wire_err = FIO_EIO;
@@ -2083,7 +2319,6 @@ int fio_mkdir(const char *path, mode_t mode) {
     } else {
         result = 0;
     }
-
     free_pending(slot);
     return result;
 }

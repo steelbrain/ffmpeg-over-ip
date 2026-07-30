@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,19 +33,28 @@ func (l *LogValue) UnmarshalJSON(data []byte) error {
 }
 
 type ServerConfig struct {
-	Log              LogValue    `json:"log"`
-	Address          string      `json:"address"`
-	AuthSecret       string      `json:"authSecret"`
-	Rewrites         [][2]string `json:"rewrites"`
-	ShortCircuitRead []string    `json:"shortCircuitRead"`
-	Debug            bool        `json:"debug"`
+	Log                   LogValue    `json:"log"`
+	Address               string      `json:"address"`
+	AuthSecret            string      `json:"authSecret"`
+	Rewrites              [][2]string `json:"rewrites"`
+	ShortCircuitRead      []string    `json:"shortCircuitRead"`
+	ShortCircuitReadWrite []string    `json:"shortCircuitReadWrite"`
+	ShortCircuitShared    []string    `json:"shortCircuitShared"`
+	Debug                 bool        `json:"debug"`
 }
 
-func (c *ServerConfig) ResolveShortCircuitPaths() ([]string, error) {
-	if len(c.ShortCircuitRead) == 0 {
-		return nil, nil
+func (c *ServerConfig) ResolveShortCircuitPaths() (ro []string, rw []string, err error) {
+	ro, err = cleanAndValidatePrefixes("shortCircuitRead", c.ShortCircuitRead)
+	if err != nil {
+		return nil, nil, err
 	}
-	return cleanAndValidatePrefixes("shortCircuitRead", c.ShortCircuitRead)
+	rwList := append([]string{}, c.ShortCircuitReadWrite...)
+	rwList = append(rwList, c.ShortCircuitShared...)
+	rw, err = cleanAndValidatePrefixes("shortCircuitReadWrite", rwList)
+	if err != nil {
+		return nil, nil, err
+	}
+	return ro, rw, nil
 }
 
 func cleanAndValidatePrefixes(name string, prefixes []string) ([]string, error) {
@@ -192,12 +202,17 @@ func serverConfigFromEnv() *ServerConfig {
 		return nil
 	}
 	reads := SplitPathList(os.Getenv("FFMPEG_OVER_IP_SERVER_SHORT_CIRCUIT_READ"))
+	rw := SplitPathList(os.Getenv("FFMPEG_OVER_IP_SERVER_SHORT_CIRCUIT_READ_WRITE"))
+	if len(rw) == 0 {
+		rw = SplitPathList(os.Getenv("FFMPEG_OVER_IP_SERVER_SHORT_CIRCUIT_SHARED"))
+	}
 	return &ServerConfig{
-		Address:          address,
-		AuthSecret:       authSecret,
-		Log:              LogValue(os.Getenv("FFMPEG_OVER_IP_SERVER_LOG")),
-		ShortCircuitRead: reads,
-		Debug:            parseLaxBool(os.Getenv("FFMPEG_OVER_IP_SERVER_DEBUG")),
+		Address:               address,
+		AuthSecret:            authSecret,
+		Log:                   LogValue(os.Getenv("FFMPEG_OVER_IP_SERVER_LOG")),
+		ShortCircuitRead:      reads,
+		ShortCircuitReadWrite: rw,
+		Debug:                 parseLaxBool(os.Getenv("FFMPEG_OVER_IP_SERVER_DEBUG")),
 	}
 }
 

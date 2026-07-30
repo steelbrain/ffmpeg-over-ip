@@ -112,6 +112,11 @@ extern int fio_test_set_tunnel(int sock_fd, uint32_t read_ahead_bytes,
                                int read_ahead_explicit, uint32_t range_cache_max_bytes);
 extern void fio_test_teardown(void);
 
+/* Local-prefix allowlist internals (FIO_TESTING makes these non-static) */
+extern void fio_parse_local_prefixes(const char *spec);
+extern int  fio_path_is_local(const char *path);
+extern int  fio_path_has_dotdot(const char *path);
+
 #include <pthread.h>
 
 /* Big-endian helpers for envelope tests */
@@ -2099,11 +2104,182 @@ TEST(tunnel_oneshot_read_larger_than_file) {
     return 0;
 }
 
+/* The gate that makes a misconfigured prefix list safe: reads under an
+ * allowlisted prefix are served from local disk, writes to the very same path
+ * still tunnel. The real file's content differs from the mock server's, so the
+ * bytes themselves prove which side answered. */
+TEST(local_prefix_open_is_read_only) {
+    char tmppath[] = "/tmp/fio_local_prefix_XXXXXX";
+    int tfd = mkstemp(tmppath);
+    ASSERT(tfd >= 0);
+    const char *disk = "LOCAL-DISK-CONTENT";
+    ssize_t wrote = write(tfd, disk, strlen(disk));
+    close(tfd);
+    ASSERT(wrote == (ssize_t)strlen(disk));
+
+    size_t disk_len = strlen(disk);
+    uint8_t tunneled[32];
+    memset(tunneled, 'T', sizeof(tunneled));
+
+    mock_server srv;
+    if (tunnel_start(&srv, tunneled, disk_len, 512, 1, 64 * 1024 * 1024, 0) != 0) {
+        unlink(tmppath);
+        return 1;
+    }
+    /* Set after tunnel_start — fio_test_set_tunnel memsets fio_state. */
+    fio_parse_local_prefixes("/tmp");
+
+    int rfd = fio_open(tmppath, O_RDONLY, 0);
+    TUN_ASSERT(rfd >= 0);
+    TUN_ASSERT(rfd < 10000); /* a real fd, not a vfd */
+    char buf[32];
+    memset(buf, 0, sizeof(buf));
+    ssize_t n = fio_read(rfd, buf, sizeof(buf) - 1);
+    TUN_ASSERT(n == (ssize_t)disk_len);
+    TUN_ASSERT(strcmp(buf, disk) == 0);
+    close(rfd);
+
+    /* The same path opened for writing must still be a vfd. */
+    int wfd = fio_open(tmppath, O_WRONLY, 0);
+    TUN_ASSERT(wfd >= 10000);
+    TUN_ASSERT(fio_close(wfd) == 0);
+
+    /* An unlisted path stays tunneled even when read-only. */
+    int ofd = fio_open("/movie.mkv", O_RDONLY, 0);
+    TUN_ASSERT(ofd >= 10000);
+    TUN_ASSERT(fio_close(ofd) == 0);
+
+    tunnel_stop(&srv);
+    unlink(tmppath);
+    return 0;
+}
+
+/* A declared prefix is a declaration, not a guarantee. If the local open fails
+ * anyway — stale mount, wrong path, permissions — fall back to the tunnel so
+ * correctness never depends on the declaration being right. */
+TEST(local_prefix_missing_file_falls_back) {
+    uint8_t tunneled[64];
+    memset(tunneled, 'T', sizeof(tunneled));
+
+    mock_server srv;
+    if (tunnel_start(&srv, tunneled, sizeof(tunneled), 512, 1, 64 * 1024 * 1024, 0) != 0) {
+        return 1;
+    }
+    fio_parse_local_prefixes("/tmp");
+
+    /* Absent locally, so the local open fails and the tunnel serves it. */
+    int fd = fio_open("/tmp/fio_definitely_absent_9f3a2b/movie.mkv", O_RDONLY, 0);
+    TUN_ASSERT(fd >= 10000);
+    TUN_ASSERT(fio_close(fd) == 0);
+
+    tunnel_stop(&srv);
+    return 0;
+}
+
+/* Writes use their own list: a path declared readable-local is not thereby
+ * writable-local. */
+TEST(local_prefix_write_list_is_separate) {
+    char tmppath[] = "/tmp/fio_wr_XXXXXX";
+    int tfd = mkstemp(tmppath);
+    ASSERT(tfd >= 0);
+    close(tfd);
+
+    uint8_t tunneled[64];
+    memset(tunneled, 'T', sizeof(tunneled));
+
+    mock_server srv;
+    if (tunnel_start(&srv, tunneled, sizeof(tunneled), 512, 1, 64 * 1024 * 1024, 0) != 0) {
+        unlink(tmppath);
+        return 1;
+    }
+
+    /* Writes are always tunneled, even under RO prefix */
+    fio_parse_local_prefixes("/tmp");
+    int wfd = fio_open(tmppath, O_WRONLY, 0);
+    TUN_ASSERT(wfd >= 10000);
+    TUN_ASSERT(fio_close(wfd) == 0);
+
+    /* Reads under RO still short-circuit when size matches (handled by earlier tests) */
+    int rfd = fio_open(tmppath, O_RDONLY, 0);
+    /* May be real or vfd depending on file existence, but must be valid */
+    TUN_ASSERT(rfd >= 0);
+    if (rfd < 10000) close(rfd); else fio_close(rfd);
+
+    tunnel_stop(&srv);
+    unlink(tmppath);
+    return 0;
+}
+
 #undef TUN_ASSERT
 
 /* ======================================================================
  * main
  * ====================================================================== */
+
+/* ======================================================================
+ * Local prefix allowlist (FFOIP_SHORT_CIRCUIT_READ)
+ * ====================================================================== */
+
+TEST(local_prefix_unset_is_never_local) {
+    fio_parse_local_prefixes(NULL);
+    ASSERT_EQ(fio_path_is_local("/media/movies/a.mkv"), 0);
+    fio_parse_local_prefixes("");
+    ASSERT_EQ(fio_path_is_local("/media/movies/a.mkv"), 0);
+    return 0;
+}
+
+TEST(local_prefix_component_boundary) {
+    fio_parse_local_prefixes("/media");
+    ASSERT_EQ(fio_path_is_local("/media/movies/a.mkv"), 1);
+    ASSERT_EQ(fio_path_is_local("/media"), 1);
+    /* The classic prefix-match bug: a bare strncmp would call this local. */
+    ASSERT_EQ(fio_path_is_local("/mediafoo/a.mkv"), 0);
+    ASSERT_EQ(fio_path_is_local("/med"), 0);
+    ASSERT_EQ(fio_path_is_local("/config/transcodes/x.ts"), 0);
+    return 0;
+}
+
+TEST(local_prefix_multiple_and_trailing_slash) {
+    fio_parse_local_prefixes("/media/:/srv/library///");
+    ASSERT_EQ(fio_path_is_local("/media/a.mkv"), 1);
+    ASSERT_EQ(fio_path_is_local("/srv/library/b.mkv"), 1);
+    ASSERT_EQ(fio_path_is_local("/srv/librarian/b.mkv"), 0);
+    return 0;
+}
+
+TEST(local_prefix_root_matches_everything) {
+    fio_parse_local_prefixes("/");
+    ASSERT_EQ(fio_path_is_local("/anything/at/all"), 1);
+    ASSERT_EQ(fio_path_is_local("/"), 1);
+    ASSERT_EQ(fio_path_is_local("relative"), 0);
+    return 0;
+}
+
+TEST(local_prefix_rejects_dotdot) {
+    fio_parse_local_prefixes("/media");
+    ASSERT_EQ(fio_path_has_dotdot("/media/../etc/shadow"), 1);
+    ASSERT_EQ(fio_path_has_dotdot("/media/.."), 1);
+    ASSERT_EQ(fio_path_has_dotdot("/media/..hidden/a.mkv"), 0);
+    /* Traversal out of an allowlisted prefix must not be served locally. */
+    ASSERT_EQ(fio_path_is_local("/media/../etc/shadow"), 0);
+    ASSERT_EQ(fio_path_is_local("/media/..hidden/a.mkv"), 1);
+    return 0;
+}
+
+TEST(local_prefix_rejects_relative) {
+    fio_parse_local_prefixes("/media");
+    ASSERT_EQ(fio_path_is_local("media/a.mkv"), 0);
+    ASSERT_EQ(fio_path_is_local("./media/a.mkv"), 0);
+    return 0;
+}
+
+TEST(local_prefix_drops_invalid_entries) {
+    /* Relative and empty entries are dropped; the valid one still applies. */
+    fio_parse_local_prefixes("relative/path::/media:");
+    ASSERT_EQ(fio_path_is_local("/media/a.mkv"), 1);
+    ASSERT_EQ(fio_path_is_local("/relative/path/a.mkv"), 0);
+    return 0;
+}
 
 int main(int argc, char *argv[]) {
     if (argc >= 3 && strcmp(argv[1], "--wire-test") == 0) {
@@ -2167,6 +2343,18 @@ int main(int argc, char *argv[]) {
 
     printf("\n--- Flag Translation ---\n");
     RUN(flag_translation_wronly_creat_trunc);
+
+    printf("\n--- Local Prefix Allowlist ---\n");
+    RUN(local_prefix_unset_is_never_local);
+    RUN(local_prefix_component_boundary);
+    RUN(local_prefix_multiple_and_trailing_slash);
+    RUN(local_prefix_root_matches_everything);
+    RUN(local_prefix_rejects_dotdot);
+    RUN(local_prefix_rejects_relative);
+    RUN(local_prefix_drops_invalid_entries);
+    RUN(local_prefix_open_is_read_only);
+    RUN(local_prefix_missing_file_falls_back);
+    RUN(local_prefix_write_list_is_separate);
 
     printf("\n--- Passthrough Mode ---\n");
     RUN(passthrough_file_ops);
