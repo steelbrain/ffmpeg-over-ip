@@ -55,14 +55,25 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	if len(cfg.ShortCircuitRead) > 0 {
-		log.Printf("short-circuit RO for: %v", cfg.ShortCircuitRead)
+	ro, rw, err := cfg.ResolveShortCircuitPaths()
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	if len(ro) > 0 {
+		log.Printf("short-circuit RO for: %v", ro)
+	}
+	if len(rw) > 0 {
+		log.Printf("short-circuit RW for: %v", rw)
 	}
 	if cfg.MaxConcurrent == 0 {
 		log.Printf("max concurrent: unlimited")
 	} else {
 		log.Printf("max concurrent: %d (default 1 for little nodes, bump for big GPU)", cfg.MaxConcurrent)
 	}
+
+	// Re-assign for closure capture (cfg has raw, but we want resolved)
+	cfg.ShortCircuitRead = ro
+	cfg.ShortCircuitReadWrite = rw
 
 	network, addr := config.ParseAddress(cfg.Address)
 	listener, err := net.Listen(network, addr)
@@ -166,7 +177,7 @@ func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConf
 
 	// Start process
 	proc := process.NewProcess(binaryPath, args)
-	proc.SetShortCircuitPaths(cfg.ShortCircuitRead)
+	proc.SetShortCircuitPaths(cfg.ShortCircuitRead, cfg.ShortCircuitReadWrite)
 	if err := proc.Start(ctx); err != nil {
 		sendError(conn, fmt.Sprintf("failed to start process: %v", err))
 		return

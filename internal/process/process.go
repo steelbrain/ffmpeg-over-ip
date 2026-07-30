@@ -16,9 +16,10 @@ const KillTimeout = 5 * time.Second
 
 // Process manages a child process with a loopback listener for fio.
 type Process struct {
-	programPath      string
-	args             []string
-	shortCircuitRead []string
+	programPath           string
+	args                  []string
+	shortCircuitRead      []string
+	shortCircuitReadWrite []string
 
 	cmd      *exec.Cmd
 	listener net.Listener
@@ -43,7 +44,12 @@ func NewProcess(programPath string, args []string) *Process {
 	}
 }
 
-func (p *Process) SetShortCircuitPaths(paths []string) {
+func (p *Process) SetShortCircuitPaths(ro, rw []string) {
+	p.shortCircuitRead = ro
+	p.shortCircuitReadWrite = rw
+}
+
+func (p *Process) SetShortCircuitPathsSingle(paths []string) {
 	p.shortCircuitRead = paths
 }
 
@@ -63,6 +69,10 @@ func (p *Process) Start(ctx context.Context) error {
 	cmd.Env = append(cmd.Environ(), fmt.Sprintf("FFOIP_PORT=%d", port))
 	if len(p.shortCircuitRead) > 0 {
 		cmd.Env = append(cmd.Env, "FFOIP_SHORT_CIRCUIT_READ="+strings.Join(p.shortCircuitRead, ":"))
+	}
+	if len(p.shortCircuitReadWrite) > 0 {
+		cmd.Env = append(cmd.Env, "FFOIP_SHORT_CIRCUIT_READ_WRITE="+strings.Join(p.shortCircuitReadWrite, ":"))
+		cmd.Env = append(cmd.Env, "FFOIP_SHORT_CIRCUIT_SHARED="+strings.Join(p.shortCircuitReadWrite, ":"))
 	}
 
 	stdinPipe, err := cmd.StdinPipe()

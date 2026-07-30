@@ -40,6 +40,7 @@ type ServerConfig struct {
 	ShortCircuitRead      []string    `json:"shortCircuitRead"`
 	ShortCircuitReadWrite []string    `json:"shortCircuitReadWrite"`
 	ShortCircuitShared    []string    `json:"shortCircuitShared"`
+	MaxConcurrent         int         `json:"maxConcurrent"`
 	Debug                 bool        `json:"debug"`
 }
 
@@ -166,6 +167,9 @@ func LoadServerConfig(explicitPath string) (*ServerConfig, error) {
 	if cfg.AuthSecret == "" {
 		return nil, fmt.Errorf("config: authSecret is required")
 	}
+	if cfg.MaxConcurrent == 0 {
+		cfg.MaxConcurrent = 1
+	}
 	return &cfg, nil
 }
 
@@ -206,12 +210,21 @@ func serverConfigFromEnv() *ServerConfig {
 	if len(rw) == 0 {
 		rw = SplitPathList(os.Getenv("FFMPEG_OVER_IP_SERVER_SHORT_CIRCUIT_SHARED"))
 	}
+	maxConc := 1
+	if s, ok := os.LookupEnv("FFMPEG_OVER_IP_SERVER_MAX_CONCURRENT"); ok {
+		if strings.TrimSpace(s) == "" {
+			maxConc = 1
+		} else if v, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && v >= 0 {
+			maxConc = v
+		}
+	}
 	return &ServerConfig{
 		Address:               address,
 		AuthSecret:            authSecret,
 		Log:                   LogValue(os.Getenv("FFMPEG_OVER_IP_SERVER_LOG")),
 		ShortCircuitRead:      reads,
 		ShortCircuitReadWrite: rw,
+		MaxConcurrent:         maxConc,
 		Debug:                 parseLaxBool(os.Getenv("FFMPEG_OVER_IP_SERVER_DEBUG")),
 	}
 }

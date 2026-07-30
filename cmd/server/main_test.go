@@ -140,7 +140,7 @@ func TestHandleConnectionBadFirstMessage(t *testing.T) {
 	ctx := context.Background()
 	cfg := &config.ServerConfig{AuthSecret: "test-secret"}
 
-	go handleConnection(ctx, serverConn, cfg, "/bin/echo", "/bin/echo", nil, nil)
+	go handleConnection(ctx, serverConn, cfg, "/bin/echo", "/bin/echo")
 
 	// Send a MsgPing instead of MsgCommand
 	if err := protocol.WriteMessageTo(clientConn, protocol.MsgPing, nil); err != nil {
@@ -168,7 +168,7 @@ func TestHandleConnectionInvalidCommand(t *testing.T) {
 	ctx := context.Background()
 	cfg := &config.ServerConfig{AuthSecret: "test-secret"}
 
-	go handleConnection(ctx, serverConn, cfg, "/bin/echo", "/bin/echo", nil, nil)
+	go handleConnection(ctx, serverConn, cfg, "/bin/echo", "/bin/echo")
 
 	// Send a MsgCommand with a 1-byte payload (too short to decode)
 	if err := protocol.WriteMessageTo(clientConn, protocol.MsgCommand, []byte{0x01}); err != nil {
@@ -196,7 +196,7 @@ func TestHandleConnectionAuthFailure(t *testing.T) {
 	ctx := context.Background()
 	cfg := &config.ServerConfig{AuthSecret: "correct-secret"}
 
-	go handleConnection(ctx, serverConn, cfg, "/bin/echo", "/bin/echo", nil, nil)
+	go handleConnection(ctx, serverConn, cfg, "/bin/echo", "/bin/echo")
 
 	// Sign with wrong secret
 	payload := makeCommandPayload("wrong-secret", protocol.ProgramFFmpeg, []string{"-version"})
@@ -226,7 +226,7 @@ func TestHandleConnectionUnknownProgram(t *testing.T) {
 	secret := "test-secret"
 	cfg := &config.ServerConfig{AuthSecret: secret}
 
-	go handleConnection(ctx, serverConn, cfg, "/bin/echo", "/bin/echo", nil, nil)
+	go handleConnection(ctx, serverConn, cfg, "/bin/echo", "/bin/echo")
 
 	// Sign with correct secret but unknown program 0xFF
 	payload := makeCommandPayload(secret, 0xFF, []string{"-version"})
@@ -257,7 +257,7 @@ func TestHandleConnectionSuccess(t *testing.T) {
 	cfg := &config.ServerConfig{AuthSecret: secret}
 
 	echoBin := buildEchoStub(t)
-	go handleConnection(ctx, serverConn, cfg, echoBin, echoBin, nil, nil)
+	go handleConnection(ctx, serverConn, cfg, echoBin, echoBin)
 
 	// Send a valid command that runs "echo -version" (echo will just print "-version")
 	payload := makeCommandPayload(secret, protocol.ProgramFFmpeg, []string{"-version"})
@@ -326,7 +326,7 @@ func TestHandleConnectionProcessNotFound(t *testing.T) {
 	cfg := &config.ServerConfig{AuthSecret: secret}
 
 	// Use a nonexistent binary path
-	go handleConnection(ctx, serverConn, cfg, "/nonexistent/binary/ffmpeg", "/nonexistent/binary/ffprobe", nil, nil)
+	go handleConnection(ctx, serverConn, cfg, "/nonexistent/binary/ffmpeg", "/nonexistent/binary/ffprobe")
 
 	payload := makeCommandPayload(secret, protocol.ProgramFFmpeg, []string{"-version"})
 	if err := protocol.WriteMessageTo(clientConn, protocol.MsgCommand, payload); err != nil {
