@@ -1,12 +1,12 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -55,22 +55,30 @@ func main() {
 
 	defer config.SetupLogging(cfg.Log)()
 
-	// Connect to server. Fallback only triggers on dial failure — once a
-	// connection is established, mid-stream errors stay fatal so we don't
-	// restart a partial transcode locally.
-	network, addr := config.ParseAddress(cfg.Address)
-	conn, err := net.Dial(network, addr)
+	// Connect to server. With several addresses configured they are shuffled
+	// (randomized load balancing) and tried sequentially with a per-attempt
+	// timeout. This gives 1/N distribution and only 1 TCP SYN in the happy
+	// path — ideal for many small nodes. Fallback only triggers once every
+	// address has failed. Once a connection is established, mid-stream errors
+	// stay fatal so we don't restart a partial transcode locally.
+	addrs := cfg.Addresses()
+	conn, addr, err := dialWithFailover(context.Background(), addrs, cfg.DialTimeoutDuration())
 	if err != nil {
+		joined := strings.Join(addrs, ", ")
 		if cfg.FallbackToLocal {
 			deps, derr := realFallbackDeps()
 			if derr != nil {
 				log.Fatalf("fallback: %v", derr)
 			}
-			os.Exit(runLocalFallback(deps, program, args, cfg.FallbackRewrites, cfg.Debug, err, addr))
+			os.Exit(runLocalFallback(deps, program, args, cfg.FallbackRewrites, cfg.Debug, err, joined))
 		}
-		log.Fatalf("failed to connect to %s: %v", addr, err)
+		log.Fatalf("failed to connect to %s: %v", joined, err)
 	}
 	defer conn.Close()
+
+	if len(addrs) > 1 {
+		log.Printf("connected to %s (%d endpoints configured, shuffled LB)", addr, len(addrs))
+	}
 
 	// Generate nonce
 	var nonce [protocol.NonceLength]byte
