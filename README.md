@@ -2,25 +2,20 @@
 
 Use GPU-accelerated ffmpeg from anywhere — a Docker container, a VM, or a remote machine — without GPU passthrough or shared filesystems.
 
-## The Problem
+## Key Features
 
-GPU transcoding is powerful, but getting access to the GPU is painful:
+- **Network-Transparent File I/O**: Access media files on remote clients via standard TCP loopback tunneling (`fio`).
+- **Shared Storage Short-Circuiting**: Automatically bypass network tunneling (`65x+` speedup) when both client and server share a storage mount (e.g. `/media`, NFS, Ceph, SeaweedFS).
+- **Multi-Node Load Balancing & Fast Failover**: Define multiple transcode servers (`node1:5050, node2:5050`). The client automatically load-balances and fails over sequentially if a node goes down.
+- **Docker & Kubernetes Ready**: Containerized server/client images, Docker Compose setups, and drop-in Kubernetes manifests for Jellyfin and transcode DaemonSets.
 
-- **Docker containers** need `--runtime=nvidia`, device mounts, and driver version alignment between host and container
-- **Virtual machines** need PCIe passthrough or SR-IOV — complex setup that locks the GPU to one VM
-- **Remote machines** need shared filesystems (NFS/SMB) with all the path mapping, mount maintenance, and permission headaches that come with them
+---
 
-You just want your media server to use the GPU for transcoding. You shouldn't need to restructure your infrastructure to make that happen.
-
-## The Solution
-
-Run the ffmpeg-over-ip server on the host (or any machine with a GPU). Point your app at the client binary instead of ffmpeg. Done — your app gets GPU-accelerated transcoding without needing direct GPU access.
-
-The client pretends to be ffmpeg. It forwards arguments to the server, which runs a patched ffmpeg that tunnels all file I/O back through the connection. Files are never stored on the server.
+## Architecture
 
 ```
-CLIENT (has files, no GPU)              SERVER (has GPU)
-========================              ===========================
+CLIENT (Jellyfin / App)                 SERVER (GPU Node)
+=======================                 =================
 
 Media server invokes "ffmpeg"         Daemon listening on :5050
         |                                      |
@@ -28,84 +23,91 @@ Media server invokes "ffmpeg"         Daemon listening on :5050
         |                                      |
         +--------- TCP connection ------------>+
         |                                      |
-  Local filesystem                      patched ffmpeg
-  (real files)                    (file I/O tunneled back to client)
+  Local / Shared Storage                 patched ffmpeg
+  (/media/movie.mkv)               (Short-circuits shared /media reads
+                                    or tunnels network I/O)
 ```
 
-No GPU passthrough. No shared filesystem. No NFS. No SMB. Just one TCP port.
-
-Releases include pre-built ffmpeg and ffprobe binaries with broad hardware acceleration support (NVENC, QSV, VAAPI, AMF, VideoToolbox, and more) — built on the [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg) pipeline. No need to install ffmpeg separately on either side.
+---
 
 ## Quick Start
 
-One-line install. Each script downloads the latest release, prompts for host/port/auth secret, and writes a starter config file in the current directory.
+### 1. Docker Compose Integration
+Test locally or in container environments using Docker Compose:
 
-**On the GPU machine** (server):
-
-```sh
-curl -fsSL https://ffmpeg-over-ip.com/install-server.sh | sh
+```bash
+docker compose up
 ```
 
-```powershell
-irm https://ffmpeg-over-ip.com/install-server.ps1 | iex
+### 2. Systemd Installation (Linux Server Nodes)
+Install `ffmpeg-over-ip-server` as a system service:
+
+```bash
+# Copy binary and systemd service file
+sudo cp build/ffmpeg-over-ip-server /usr/local/bin/
+sudo cp systemd/ffmpeg-over-ip-server.service /etc/systemd/system/
+
+# Create configuration file
+sudo mkdir -p /etc/ffmpeg-over-ip
+sudo bash -c 'cat <<EOF > /etc/ffmpeg-over-ip/server.jsonc
+{
+  "address": "0.0.0.0:5050",
+  "authSecret": "cluster_secret_9988",
+  "shortCircuitRead": [
+    "/media"
+  ]
+}
+EOF'
+
+# Enable & start service
+sudo systemctl daemon-reload
+sudo systemctl enable --now ffmpeg-over-ip-server
 ```
 
-**On the media-server machine** (client):
+### 3. Kubernetes Deployment (Jellyfin & Server DaemonSet)
+Deploy transcode daemons to GPU nodes and configure Jellyfin to transcode remotely:
 
-```sh
-curl -fsSL https://ffmpeg-over-ip.com/install-client.sh | sh
+```bash
+kubectl apply -f k8s/jellyfin-ffmpeg-over-ip.yaml
 ```
 
-```powershell
-irm https://ffmpeg-over-ip.com/install-client.ps1 | iex
-```
+---
 
-Re-runs are idempotent — already-installed binaries and existing configs are left alone. For manual install or detailed setup, see [docs/quick-start.md](docs/quick-start.md).
+## Configuration Reference
 
-## Upgrading from v4
-
-See [docs/upgrading.md](docs/upgrading.md) for migration guide and breaking changes.
-
-## Configuration
-
-See [docs/configuration.md](docs/configuration.md) for full configuration reference (config file search paths, server/client options, rewrites, logging, address formats).
-
-## Docker
-
-See [docs/docker.md](docs/docker.md) for Docker integration, Unix socket setup, and debugging tips.
-
-## How It Works
-
-1. Your media server calls `ffmpeg-over-ip-client` with normal ffmpeg arguments
-2. The client connects to the server and sends the command with HMAC authentication
-3. The server launches its patched ffmpeg, which tunnels all file reads and writes back to the client
-4. stdout/stderr are forwarded in real-time; when ffmpeg exits, the client exits with the same code
-
-Multiple clients can connect to the same server simultaneously — each session gets its own ffmpeg process.
-
-## Supported Platforms
-
-| | Client | Server + ffmpeg |
+### Client Environment Variables
+| Variable | Example | Description |
 |---|---|---|
-| Linux x86_64 | ✓ | ✓ |
-| Linux arm64 | ✓ | ✓ |
-| macOS arm64 | ✓ | ✓ |
-| macOS x86_64 | ✓ | ✓ |
-| Windows x86_64 | ✓ | ✓ |
+| `FFMPEG_OVER_IP_CLIENT_ADDRESS` | `mini:5050, pico:5050` | Comma-separated list of server addresses for randomized load balancing & failover |
+| `FFMPEG_OVER_IP_CLIENT_AUTH_SECRET` | `cluster_secret` | Shared HMAC secret matching the server daemons |
+| `FFMPEG_OVER_IP_CLIENT_DIAL_TIMEOUT` | `3s` | Timeout per dial attempt before failing over |
+| `FFMPEG_OVER_IP_CLIENT_FALLBACK_TO_LOCAL` | `true` | Fallback to local `ffmpeg` binary if all remote servers are down |
 
+### Server Environment Variables
+| Variable | Example | Description |
+|---|---|---|
+| `FFMPEG_OVER_IP_SERVER_ADDRESS` | `0.0.0.0:5050` | Bind address and port for transcode daemon |
+| `FFMPEG_OVER_IP_SERVER_AUTH_SECRET` | `cluster_secret` | Shared HMAC secret for client authentication |
+| `FFMPEG_OVER_IP_SERVER_SHORT_CIRCUIT_READ` | `/media,/mnt/storage` | Directories to bypass network tunneling and open directly off shared storage |
 
-## Troubleshooting
-
-See [docs/troubleshooting.md](docs/troubleshooting.md) for common issues and debugging tips.
+---
 
 ## Building from Source
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, running tests, and project structure.
+```bash
+# Build server & client binaries for Linux AMD64
+go build -o build/ffmpeg-over-ip-server ./cmd/server
+go build -o build/ffmpeg-over-ip-client ./cmd/client
 
-## Security
+# Run C FIO unit test suite
+make -C fio test
+make -C fio wire-test
 
-- **Authentication**: HMAC-SHA256 with a shared secret. Every command is signed.
-- **Single port**: Only the server listens on a port. The client makes outbound connections only.
+# Run Go unit test suite
+go test ./...
+```
+
+---
 
 ## License
 
