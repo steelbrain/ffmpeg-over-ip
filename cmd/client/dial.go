@@ -12,19 +12,13 @@ import (
 	"github.com/steelbrain/ffmpeg-over-ip/internal/config"
 )
 
-// dialResult is the outcome of one address's dial attempt. Exactly one of
-// conn / err is set.
-type dialResult struct {
-	conn net.Conn
-	addr string
-	err  error
-}
-
-// ShuffleAddresses returns a randomized copy of addrs to distribute dial attempts
-// evenly across available nodes without thundering herd concurrency.
+// ShuffleAddresses returns a randomized copy of addrs for fair 1/N load balancing.
+// Fisher-Yates with crypto/rand.
 func ShuffleAddresses(addrs []string) []string {
 	if len(addrs) <= 1 {
-		return addrs
+		out := make([]string, len(addrs))
+		copy(out, addrs)
+		return out
 	}
 	shuffled := make([]string, len(addrs))
 	copy(shuffled, addrs)
@@ -39,98 +33,111 @@ func ShuffleAddresses(addrs []string) []string {
 	return shuffled
 }
 
-// dialRandomizedWithFailover shuffles candidate addresses to distribute load
-// across cluster nodes and dials them sequentially with a per-attempt timeout,
-// failing over immediately if an endpoint is offline or unavailable.
-func dialRandomizedWithFailover(parent context.Context, addrs []string, timeout time.Duration) (net.Conn, string, error) {
+// dialResult holds outcome of one dial attempt.
+type dialResult struct {
+	conn net.Conn
+	addr string
+	err  error
+}
+
+// dialWithFailover is shuffled sequential with hedged start for fast failover.
+// - Shuffles list for fair 1/N LB
+// - Happy path: 1 SYN
+// - Blackholed node: instead of waiting full timeout (5s), we start next attempt
+//   after hedgeDelay (250ms). Worst case 250ms to fail over, not 5s.
+// This is faster than pure sequential, but not thundering herd like old racing dial
+// which opened N connections at once.
+func dialWithFailover(parent context.Context, addrs []string, timeout time.Duration) (net.Conn, string, error) {
+	return dialHedged(parent, addrs, timeout, 250*time.Millisecond)
+}
+
+func dialHedged(parent context.Context, addrs []string, timeout, hedgeDelay time.Duration) (net.Conn, string, error) {
 	if len(addrs) == 0 {
 		return nil, "", errors.New("no server address configured")
+	}
+	if len(addrs) == 1 {
+		network, target := config.ParseAddress(addrs[0])
+		d := net.Dialer{Timeout: timeout}
+		ctx, cancel := context.WithTimeout(parent, timeout)
+		defer cancel()
+		conn, err := d.DialContext(ctx, network, target)
+		if err != nil {
+			return nil, "", err
+		}
+		return conn, addrs[0], nil
 	}
 
 	shuffled := ShuffleAddresses(addrs)
-	var errs []error
-
-	for _, addr := range shuffled {
-		network, target := config.ParseAddress(addr)
-		d := net.Dialer{Timeout: timeout}
-		ctx, cancel := context.WithTimeout(parent, timeout)
-		conn, err := d.DialContext(ctx, network, target)
-		cancel()
-
-		if err == nil {
-			return conn, addr, nil
-		}
-		errs = append(errs, fmt.Errorf("%s: %w", addr, err))
-	}
-
-	return nil, "", errors.Join(errs...)
-}
-
-// dialFirstAvailable dials every address concurrently and returns the first
-// connection to come up, along with the address that won. Losing attempts are
-// cancelled and any connection they still manage to establish is closed.
-//
-// Only the dial is raced, never the command: the client sends its signed
-// CommandMessage after this returns, so a transcode is never started on more
-// than one server.
-//
-// Racing arbitrates on TCP handshake latency, which on a LAN is a proxy for
-// "is this server up", not "is this server idle". Treat it as fast failover
-// across interchangeable transcode nodes, not as load balancing.
-//
-// A zero timeout leaves the per-attempt deadline to the OS. The parent context
-// bounds the race as a whole.
-func dialFirstAvailable(parent context.Context, addrs []string, timeout time.Duration) (net.Conn, string, error) {
-	if len(addrs) == 0 {
-		return nil, "", errors.New("no server address configured")
-	}
-
 	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
 
-	// Buffered to len(addrs) so no dial goroutine can block on send once the
-	// race has stopped reading — that is what keeps them from leaking.
-	ch := make(chan dialResult, len(addrs))
-	for _, addr := range addrs {
-		go func(addr string) {
-			network, target := config.ParseAddress(addr)
-			d := net.Dialer{Timeout: timeout}
-			conn, err := d.DialContext(ctx, network, target)
-			ch <- dialResult{conn: conn, addr: addr, err: err}
-		}(addr)
-	}
+	results := make(chan dialResult, len(shuffled))
 
-	// Cancelling races the TCP handshake, so a loser can still come back with
-	// a live connection after the winner is picked. Nobody is reading the
-	// channel by then, so each straggler has to be drained and closed or we
-	// leak an established socket (and leave the server holding a session it
-	// will never get a command on) per extra endpoint.
-	drain := func(remaining int) {
-		go func() {
-			for range remaining {
-				if res := <-ch; res.conn != nil {
-					res.conn.Close()
+	// Launch hedged dials: first immediate, next after hedgeDelay, etc.
+	for i, addr := range shuffled {
+		go func(idx int, a string) {
+			if idx > 0 && hedgeDelay > 0 {
+				timer := time.NewTimer(hedgeDelay * time.Duration(idx))
+				defer timer.Stop()
+				select {
+				case <-timer.C:
+				case <-ctx.Done():
+					return
 				}
 			}
-		}()
+			// If already cancelled (winner found), skip dial
+			if ctx.Err() != nil {
+				return
+			}
+			network, target := config.ParseAddress(a)
+			d := net.Dialer{Timeout: timeout}
+			dCtx, dCancel := context.WithTimeout(ctx, timeout)
+			conn, err := d.DialContext(dCtx, network, target)
+			dCancel()
+			select {
+			case results <- dialResult{conn: conn, addr: a, err: err}:
+			case <-ctx.Done():
+				if conn != nil {
+					conn.Close()
+				}
+			}
+		}(i, addr)
 	}
 
-	errs := make([]error, 0, len(addrs))
-	for i := range addrs {
+	var errs []error
+	for i := 0; i < len(shuffled); i++ {
 		select {
-		case res := <-ch:
+		case res := <-results:
 			if res.err == nil {
-				cancel()
-				drain(len(addrs) - i - 1)
+				cancel() // stop other hedged attempts
+				// Drain and close losers in background
+				go func(remaining int) {
+					for j := 0; j < remaining; j++ {
+						r := <-results
+						if r.conn != nil {
+							r.conn.Close()
+						}
+					}
+				}(len(shuffled) - i - 1)
 				return res.conn, res.addr, nil
 			}
 			errs = append(errs, fmt.Errorf("%s: %w", res.addr, res.err))
 		case <-parent.Done():
 			cancel()
-			drain(len(addrs) - i)
+			go func(remaining int) {
+				for j := 0; j < remaining; j++ {
+					if r := <-results; r.conn != nil {
+						r.conn.Close()
+					}
+				}
+			}(len(shuffled) - i)
 			return nil, "", parent.Err()
 		}
 	}
-
-	cancel()
 	return nil, "", errors.Join(errs...)
+}
+
+// alias for tests and gradual migration
+func dialRandomizedWithFailover(parent context.Context, addrs []string, timeout time.Duration) (net.Conn, string, error) {
+	return dialWithFailover(parent, addrs, timeout)
 }

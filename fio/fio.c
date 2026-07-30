@@ -81,12 +81,14 @@
 /* Pending request slots */
 #define FIO_MAX_PENDING  64
 
-/* Local-prefix allowlist (FFOIP_SHORT_CIRCUIT_READ). Read-only opens under one of
- * these prefixes are served from the server's own filesystem instead of being
- * tunneled to the client — the shared-storage case, where the server has the
- * media mounted at the same path the client sees. */
+/* Short-circuit: RO media (verified) and RW shared (full ops) for transcode cache.
+ * RO: read-only opens under prefix may be served locally if verified.
+ * RW: any open under prefix is local if contained — for shared /cache. */
 #define FIO_MAX_PREFIXES     16
 #define FIO_MAX_PREFIX_LEN   512
+#ifndef O_ACCMODE
+#define O_ACCMODE (O_RDONLY|O_WRONLY|O_RDWR)
+#endif
 
 /* Sequential read-ahead. This cuts request/response round trips for readers
  * like FFmpeg's AVIO layer that commonly pull 32 KiB at a time. */

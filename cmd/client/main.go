@@ -55,13 +55,14 @@ func main() {
 
 	defer config.SetupLogging(cfg.Log)()
 
-	// Connect to server. With several addresses configured they are dialed
-	// concurrently and the first to answer wins; fallback only triggers once
-	// every one of them has failed. Once a connection is established,
-	// mid-stream errors stay fatal so we don't restart a partial transcode
-	// locally — and we don't fail over to another server mid-stream either.
+	// Connect to server. With several addresses configured they are shuffled
+	// (randomized load balancing) and tried sequentially with a per-attempt
+	// timeout. This gives 1/N distribution and only 1 TCP SYN in the happy
+	// path — ideal for many small nodes. Fallback only triggers once every
+	// address has failed. Once a connection is established, mid-stream errors
+	// stay fatal so we don't restart a partial transcode locally.
 	addrs := cfg.Addresses()
-	conn, addr, err := dialFirstAvailable(context.Background(), addrs, cfg.DialTimeoutDuration())
+	conn, addr, err := dialWithFailover(context.Background(), addrs, cfg.DialTimeoutDuration())
 	if err != nil {
 		joined := strings.Join(addrs, ", ")
 		if cfg.FallbackToLocal {
@@ -76,7 +77,7 @@ func main() {
 	defer conn.Close()
 
 	if len(addrs) > 1 {
-		log.Printf("connected to %s (won race against %d endpoints)", addr, len(addrs))
+		log.Printf("connected to %s (%d endpoints configured, shuffled LB)", addr, len(addrs))
 	}
 
 	// Generate nonce
