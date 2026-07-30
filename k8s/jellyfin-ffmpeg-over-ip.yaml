@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jellyfin
+  namespace: default
+  labels:
+    app.kubernetes.io/name: jellyfin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jellyfin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jellyfin
+    spec:
+      # Optional InitContainer to install ffmpeg-over-ip-client into jellyfin
+      initContainers:
+        - name: install-ffmpeg-over-ip-client
+          image: ghcr.io/steelbrain/ffmpeg-over-ip-client:latest
+          command:
+            - sh
+            - -c
+            - cp /usr/bin/ffmpeg-over-ip-client /target/ffmpeg
+          volumeMounts:
+            - name: ffmpeg-bin
+              mountPath: /target
+
+      containers:
+        - name: jellyfin
+          image: jellyfin/jellyfin:latest
+          env:
+            # Comma-separated list of server daemon endpoints
+            - name: FFMPEG_OVER_IP_CLIENT_ADDRESS
+              value: "172.18.4.178:5050, 172.18.4.179:5050"
+            - name: FFMPEG_OVER_IP_CLIENT_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ffmpeg-over-ip-secret
+                  key: auth-secret
+                  optional: true
+            - name: FFMPEG_OVER_IP_CLIENT_DIAL_TIMEOUT
+              value: "3s"
+            - name: FFMPEG_OVER_IP_CLIENT_FALLBACK_TO_LOCAL
+              value: "true"
+          volumeMounts:
+            - name: ffmpeg-bin
+              mountPath: /usr/lib/jellyfin-ffmpeg
+            - name: media-storage
+              mountPath: /media
+          ports:
+            - containerPort: 8096
+              name: http
+
+      volumes:
+        - name: ffmpeg-bin
+          emptyDir: {}
+        - name: media-storage
+          persistentVolumeClaim:
+            claimName: media-pvc
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ffmpeg-over-ip-secret
+  namespace: default
+type: Opaque
+stringData:
+  auth-secret: "cluster_secret_9988"
+---
+# Server DaemonSet for transcode nodes (mini, pico, fry)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ffmpeg-over-ip-server
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: ffmpeg-over-ip-server
+  template:
+    metadata:
+      labels:
+        app: ffmpeg-over-ip-server
+    spec:
+      hostNetwork: true
+      containers:
+        - name: server
+          image: ghcr.io/steelbrain/ffmpeg-over-ip-server:latest
+          env:
+            - name: FFMPEG_OVER_IP_SERVER_ADDRESS
+              value: "0.0.0.0:5050"
+            - name: FFMPEG_OVER_IP_SERVER_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ffmpeg-over-ip-secret
+                  key: auth-secret
+            - name: FFMPEG_OVER_IP_SERVER_SHORT_CIRCUIT_READ
+              value: "/media"
+          volumeMounts:
+            - name: media-storage
+              mountPath: /media
+          ports:
+            - containerPort: 5050
+              hostPort: 5050
+              name: transcode
+      volumes:
+        - name: media-storage
+          persistentVolumeClaim:
+            claimName: media-pvc
