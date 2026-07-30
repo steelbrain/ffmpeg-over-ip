@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/steelbrain/ffmpeg-over-ip/internal/auth"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/config"
@@ -18,6 +20,8 @@ import (
 	"github.com/steelbrain/ffmpeg-over-ip/internal/rewrite"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/session"
 )
+
+var activeConns atomic.Int32
 
 func main() {
 	configPath := flag.String("config", "", "path to server config file")
@@ -50,6 +54,15 @@ func main() {
 	// Set up signal-aware context
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	if len(cfg.ShortCircuitRead) > 0 {
+		log.Printf("short-circuit RO for: %v", cfg.ShortCircuitRead)
+	}
+	if cfg.MaxConcurrent == 0 {
+		log.Printf("max concurrent: unlimited")
+	} else {
+		log.Printf("max concurrent: %d (default 1 for little nodes, bump for big GPU)", cfg.MaxConcurrent)
+	}
 
 	network, addr := config.ParseAddress(cfg.Address)
 	listener, err := net.Listen(network, addr)
@@ -92,8 +105,21 @@ func main() {
 func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConfig, ffmpegPath, ffprobePath string) {
 	defer conn.Close()
 
+	// Admission control: if at capacity, reject immediately so client can failover fast
+	if cfg.MaxConcurrent > 0 && int(activeConns.Load()) >= cfg.MaxConcurrent {
+		sendError(conn, "server busy: at capacity")
+		log.Printf("reject busy from %s (%d/%d active)", conn.RemoteAddr(), activeConns.Load(), cfg.MaxConcurrent)
+		return
+	}
+	activeConns.Add(1)
+	defer activeConns.Add(-1)
+
+	// Prevent slowloris holding slot: 10s to send first message
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+
 	// Read command message
 	msg, err := protocol.ReadMessageFrom(conn)
+	_ = conn.SetReadDeadline(time.Time{}) // clear for session keepalive
 	if err != nil {
 		log.Printf("failed to read command: %v", err)
 		return
@@ -140,6 +166,7 @@ func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConf
 
 	// Start process
 	proc := process.NewProcess(binaryPath, args)
+	proc.SetShortCircuitPaths(cfg.ShortCircuitRead)
 	if err := proc.Start(ctx); err != nil {
 		sendError(conn, fmt.Sprintf("failed to start process: %v", err))
 		return

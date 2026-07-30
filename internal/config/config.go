@@ -32,11 +32,71 @@ func (l *LogValue) UnmarshalJSON(data []byte) error {
 }
 
 type ServerConfig struct {
-	Log        LogValue    `json:"log"`
-	Address    string      `json:"address"`
-	AuthSecret string      `json:"authSecret"`
-	Rewrites   [][2]string `json:"rewrites"`
-	Debug      bool        `json:"debug"`
+	Log              LogValue    `json:"log"`
+	Address          string      `json:"address"`
+	AuthSecret       string      `json:"authSecret"`
+	Rewrites         [][2]string `json:"rewrites"`
+	ShortCircuitRead []string    `json:"shortCircuitRead"`
+	Debug            bool        `json:"debug"`
+}
+
+func (c *ServerConfig) ResolveShortCircuitPaths() ([]string, error) {
+	if len(c.ShortCircuitRead) == 0 {
+		return nil, nil
+	}
+	return cleanAndValidatePrefixes("shortCircuitRead", c.ShortCircuitRead)
+}
+
+func cleanAndValidatePrefixes(name string, prefixes []string) ([]string, error) {
+	if len(prefixes) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(prefixes))
+	seen := make(map[string]struct{}, len(prefixes))
+	for _, p := range prefixes {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		for len(p) > 1 && p[len(p)-1] == '/' {
+			p = p[:len(p)-1]
+		}
+		if !filepath.IsAbs(p) {
+			return nil, fmt.Errorf("config: %s entry %q is not an absolute path", name, p)
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		info, err := os.Stat(p)
+		if err != nil {
+			return nil, fmt.Errorf("config: %s entry %q is unusable: %w", name, p, err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("config: %s entry %q is not a directory", name, p)
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func SplitPathList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	normalized := strings.ReplaceAll(s, ",", string(filepath.ListSeparator))
+	if filepath.ListSeparator == ':' {
+		normalized = strings.ReplaceAll(normalized, ";", ":")
+	} else {
+		normalized = strings.ReplaceAll(normalized, ":", ";")
+	}
+	out := make([]string, 0, 4)
+	for _, p := range filepath.SplitList(normalized) {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 type ClientConfig struct {
@@ -131,11 +191,13 @@ func serverConfigFromEnv() *ServerConfig {
 	if address == "" || authSecret == "" {
 		return nil
 	}
+	reads := SplitPathList(os.Getenv("FFMPEG_OVER_IP_SERVER_SHORT_CIRCUIT_READ"))
 	return &ServerConfig{
-		Address:    address,
-		AuthSecret: authSecret,
-		Log:        LogValue(os.Getenv("FFMPEG_OVER_IP_SERVER_LOG")),
-		Debug:      parseLaxBool(os.Getenv("FFMPEG_OVER_IP_SERVER_DEBUG")),
+		Address:          address,
+		AuthSecret:       authSecret,
+		Log:              LogValue(os.Getenv("FFMPEG_OVER_IP_SERVER_LOG")),
+		ShortCircuitRead: reads,
+		Debug:            parseLaxBool(os.Getenv("FFMPEG_OVER_IP_SERVER_DEBUG")),
 	}
 }
 

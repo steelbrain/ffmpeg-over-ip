@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -14,12 +15,10 @@ import (
 const KillTimeout = 5 * time.Second
 
 // Process manages a child process with a loopback listener for fio.
-// It does not read or write protocol messages — the caller is responsible
-// for all multiplexing between the loopback connection, child pipes, and
-// any external connection.
 type Process struct {
-	programPath string
-	args        []string
+	programPath      string
+	args             []string
+	shortCircuitRead []string
 
 	cmd      *exec.Cmd
 	listener net.Listener
@@ -44,6 +43,10 @@ func NewProcess(programPath string, args []string) *Process {
 	}
 }
 
+func (p *Process) SetShortCircuitPaths(paths []string) {
+	p.shortCircuitRead = paths
+}
+
 // Start launches the child process with FFOIP_PORT set and starts the
 // loopback listener. Returns immediately — the loopback accept and process
 // wait happen in background goroutines.
@@ -58,6 +61,9 @@ func (p *Process) Start(ctx context.Context) error {
 
 	cmd := exec.Command(p.programPath, p.args...)
 	cmd.Env = append(cmd.Environ(), fmt.Sprintf("FFOIP_PORT=%d", port))
+	if len(p.shortCircuitRead) > 0 {
+		cmd.Env = append(cmd.Env, "FFOIP_SHORT_CIRCUIT_READ="+strings.Join(p.shortCircuitRead, ":"))
+	}
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {

@@ -81,6 +81,10 @@
 /* Pending request slots */
 #define FIO_MAX_PENDING  64
 
+/* Minimal short-circuit: read-only opens under FFOIP_SHORT_CIRCUIT_READ are served locally */
+#define FIO_MAX_PREFIXES 16
+#define FIO_MAX_PREFIX_LEN 512
+
 /* Sequential read-ahead. This cuts request/response round trips for readers
  * like FFmpeg's AVIO layer that commonly pull 32 KiB at a time. */
 #define FIO_INITIAL_READAHEAD_BYTES  (512 * 1024)
@@ -186,6 +190,8 @@ static struct {
     uint32_t          read_ahead_bytes;
     int               read_ahead_explicit;
     uint32_t          range_cache_max_bytes;
+    char              local_prefixes[FIO_MAX_PREFIXES][FIO_MAX_PREFIX_LEN];
+    int               local_prefix_count;
     fio_vfd_t         vfds[FIO_MAX_FILES];
     fio_pending_t     pending[FIO_MAX_PENDING];
     pthread_t         reader_thread;
@@ -1350,6 +1356,26 @@ static void fio_init(void) {
         }
     }
 
+    /* Minimal short-circuit parse: colon or comma separated absolute prefixes */
+    const char *sc = getenv("FFOIP_SHORT_CIRCUIT_READ");
+    if (sc && sc[0]) {
+        const char *p = sc;
+        while (*p && fio_state.local_prefix_count < FIO_MAX_PREFIXES) {
+            const char *end = strchr(p, ':');
+            const char *comma = strchr(p, ',');
+            if (comma && (!end || comma < end)) end = comma;
+            size_t len = end ? (size_t)(end - p) : strlen(p);
+            while (len > 1 && p[len-1] == '/') len--;
+            if (len > 0 && len < FIO_MAX_PREFIX_LEN && p[0] == '/') {
+                memcpy(fio_state.local_prefixes[fio_state.local_prefix_count], p, len);
+                fio_state.local_prefixes[fio_state.local_prefix_count][len] = '\0';
+                fio_state.local_prefix_count++;
+            }
+            if (!end) break;
+            p = end + 1;
+        }
+    }
+
     const char *port_str = getenv("FFOIP_PORT");
     if (!port_str || port_str[0] == '\0') {
         fio_state.initialized = 1; /* passthrough */
@@ -1497,11 +1523,38 @@ void fio_test_teardown(void) {
  * K. Public API Functions
  * ====================================================================== */
 
+static int fio_is_local(const char *path) {
+    if (!path || path[0] != '/') return 0;
+    if (strstr(path, "/..")) {
+        /* refuse any .. component - slower but safe */
+        const char *p = path;
+        while ((p = strstr(p, "/..")) != NULL) {
+            if (p[3] == '/' || p[3] == '\0') return 0;
+            p += 3;
+        }
+    }
+    for (int i = 0; i < fio_state.local_prefix_count; i++) {
+        size_t n = strlen(fio_state.local_prefixes[i]);
+        if (n == 1) return 1;
+        if (strncmp(path, fio_state.local_prefixes[i], n) != 0) continue;
+        if (path[n] == '/' || path[n] == '\0') return 1;
+    }
+    return 0;
+}
+
 int fio_open(const char *path, int flags, mode_t mode) {
     fio_ensure_init();
 
     if (fio_state.initialized == 1) {
         return open(path, flags, mode);
+    }
+
+    /* Lazy short-circuit: RO opens under prefix try local first */
+    int is_ro = ((flags & 3) == 0) && !(flags & (O_CREAT|O_TRUNC));
+    if (is_ro && fio_is_local(path)) {
+        int fd = open(path, flags, mode);
+        if (fd >= 0) return fd;
+        /* if local open fails, fall back to tunnel */
     }
 
     uint32_t wire_flags = flags_to_wire(flags);
