@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,19 +43,18 @@ type ServerConfig struct {
 	Debug                 bool        `json:"debug"`
 }
 
-func (c *ServerConfig) ResolveShortCircuitPaths() (readOnly []string, readWrite []string, err error) {
-	reads := c.ShortCircuitRead
-	rw := append([]string{}, c.ShortCircuitReadWrite...)
-	rw = append(rw, c.ShortCircuitShared...)
-	readOnly, err = cleanAndValidatePrefixes("shortCircuitRead", reads)
+func (c *ServerConfig) ResolveShortCircuitPaths() (ro []string, rw []string, err error) {
+	ro, err = cleanAndValidatePrefixes("shortCircuitRead", c.ShortCircuitRead)
 	if err != nil {
 		return nil, nil, err
 	}
-	readWrite, err = cleanAndValidatePrefixes("shortCircuitReadWrite", rw)
+	rwList := append([]string{}, c.ShortCircuitReadWrite...)
+	rwList = append(rwList, c.ShortCircuitShared...)
+	rw, err = cleanAndValidatePrefixes("shortCircuitReadWrite", rwList)
 	if err != nil {
 		return nil, nil, err
 	}
-	return readOnly, readWrite, nil
+	return ro, rw, nil
 }
 
 func cleanAndValidatePrefixes(name string, prefixes []string) ([]string, error) {

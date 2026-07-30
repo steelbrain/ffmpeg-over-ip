@@ -20,6 +20,12 @@
   "authSecret": "YOUR-CLIENT-PASSWORD-HERE", // type: string
   // ^ Ideally more than 15 characters long
 
+  "maxConcurrent": 1, // type: number, default 1 per little node. 0 = unlimited, set higher for big GPU boxes.
+
+  "shortCircuitRead": [
+    // "/media",  // RO media shared at same path on client+server, skipped leg of I/O
+  ],
+
   "debug": true, // type: boolean
   // ^ When set to true, original and rewritten args will be logged for each command
   // This is useful for troubleshooting ffmpeg commands and rewrites

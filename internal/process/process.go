@@ -15,15 +15,10 @@ import (
 const KillTimeout = 5 * time.Second
 
 // Process manages a child process with a loopback listener for fio.
-// It does not read or write protocol messages — the caller is responsible
-// for all multiplexing between the loopback connection, child pipes, and
-// any external connection.
 type Process struct {
-	programPath       string
-	args              []string
-	localPrefixes     []string
-	shortCircuitRead  []string
-	shortCircuitWrite []string
+	programPath      string
+	args             []string
+	shortCircuitRead []string
 
 	cmd      *exec.Cmd
 	listener net.Listener
@@ -48,17 +43,8 @@ func NewProcess(programPath string, args []string) *Process {
 	}
 }
 
-// SetLocalPrefixes configures the paths the child's fio should open from this
-// host's own filesystem rather than tunneling back to the client.
-func (p *Process) SetLocalPrefixes(prefixes []string) {
-	p.localPrefixes = prefixes
-	p.shortCircuitRead = prefixes
-}
-
-// SetShortCircuitPaths configures the read and write short-circuit paths for child's fio.
-func (p *Process) SetShortCircuitPaths(readPaths, writePaths []string) {
-	p.shortCircuitRead = readPaths
-	p.shortCircuitWrite = writePaths
+func (p *Process) SetShortCircuitPaths(paths []string) {
+	p.shortCircuitRead = paths
 }
 
 // Start launches the child process with FFOIP_PORT set and starts the
@@ -75,20 +61,8 @@ func (p *Process) Start(ctx context.Context) error {
 
 	cmd := exec.Command(p.programPath, p.args...)
 	cmd.Env = append(cmd.Environ(), fmt.Sprintf("FFOIP_PORT=%d", port))
-
-	reads := p.shortCircuitRead
-	if len(reads) == 0 && len(p.localPrefixes) > 0 {
-		reads = p.localPrefixes
-	}
-
-	if len(reads) > 0 {
-		prefixStr := strings.Join(reads, string(os.PathListSeparator))
-		cmd.Env = append(cmd.Env, "FFOIP_SHORT_CIRCUIT_READ="+prefixStr)
-		cmd.Env = append(cmd.Env, "FFOIP_LOCAL_PREFIXES="+prefixStr)
-	}
-	if len(p.shortCircuitWrite) > 0 {
-		cmd.Env = append(cmd.Env, "FFOIP_SHORT_CIRCUIT_WRITE="+
-			strings.Join(p.shortCircuitWrite, string(os.PathListSeparator)))
+	if len(p.shortCircuitRead) > 0 {
+		cmd.Env = append(cmd.Env, "FFOIP_SHORT_CIRCUIT_READ="+strings.Join(p.shortCircuitRead, ":"))
 	}
 
 	stdinPipe, err := cmd.StdinPipe()
