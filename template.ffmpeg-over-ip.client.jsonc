@@ -20,6 +20,9 @@
   "authSecret": "YOUR-CLIENT-PASSWORD-HERE", // type: string
   // ^ This MUST match what you have in the server
 
+  // "dialTimeout": "2s", // per-attempt connect timeout with units: "500ms", "0.5s", "2s" (default), "1m"
+  // ^ Small for fast failover across many little nodes (e.g. "1s")
+
   // Optional: when true, fall back to running the host's local ffmpeg
   // (looked up on $PATH) if the server is unreachable. Useful for media
   // servers like Jellyfin where any transcoder is better than none.
