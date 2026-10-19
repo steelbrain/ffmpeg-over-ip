@@ -8,12 +8,40 @@ the `v1`–`v4` history.
 
 ## Unreleased
 
+## 6.0.0 - 2026-10-19
+
+v6 moves the bundled ffmpeg up a major version, from FFmpeg 7.1 to 8.1. The
+ffmpeg-over-ip wire protocol, configuration, and install layout are unchanged,
+and v5 clients and servers need no config changes. Command lines (including
+server-side `rewrites`) that depend on options, codecs, or defaults FFmpeg 8
+changed or removed may need updating.
+
 ### Changed
 
-- **Bundled ffmpeg upgraded to jellyfin-ffmpeg 8.1.3** — the server's patched
-  `ffmpeg`/`ffprobe` move from jellyfin-ffmpeg 7.1.3-3 (FFmpeg 7.1.3) to
-  8.1.3-2 (FFmpeg 8.1.3) on all platforms. The fio patches are rebased onto
+- **Breaking: bundled ffmpeg upgraded to jellyfin-ffmpeg 8.1.3** — the server's
+  patched `ffmpeg`/`ffprobe` move from jellyfin-ffmpeg 7.1.3-3 (FFmpeg 7.1.3)
+  to 8.1.3-2 (FFmpeg 8.1.3) on all platforms. The fio patches are rebased onto
   the new source; 8.1 introduces no new raw file syscalls that need tunneling.
+  Minimum platforms are unchanged: glibc 2.28 on Linux, macOS 12.0.
+- The experimental `sonic`/`sonicls` encoders are no longer included
+  (jellyfin-ffmpeg now builds with `--disable-unstable`).
+
+### Added
+
+- **More hardware acceleration in the bundled ffmpeg** — the AMF hwaccel and
+  Vulkan AV1/FFV1/ProRes encoders on Linux x86_64 and Windows; VAAPI on Linux
+  arm64; Media Foundation and D3D12 encoders on Windows.
+
+### Fixed
+
+- `build-release.sh` now fails immediately for `win64` when the host has no
+  `zip`, instead of after the full container build.
+
+### CI / Testing
+
+- `test-simple-transcode.sh` now actually checks ffprobe reading through fio.
+  It passed `-pix_fmt`, which ffprobe rejects, and only passed by matching the
+  minimal build's configure banner.
 
 ## 5.2.1 - 2026-06-14
 
