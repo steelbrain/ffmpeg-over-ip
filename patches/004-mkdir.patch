@@ -1,16 +1,16 @@
 diff --git a/libavformat/utils.c b/libavformat/utils.c
-index e892e8b..81a08a7 100644
+index 7a74e63..787cb9f 100644
 --- a/libavformat/utils.c
 +++ b/libavformat/utils.c
-@@ -38,6 +38,7 @@
+@@ -44,6 +44,7 @@
  #include "network.h"
  #endif
  #include "os_support.h"
 +#include "fio.h"
+ #include "urldecode.h"
  
  /**
-  * @file
-@@ -432,13 +433,13 @@ int ff_mkdir_p(const char *path)
+@@ -442,13 +443,13 @@ int ff_mkdir_p(const char *path)
          if (*pos == '/' || *pos == '\\') {
              tmp_ch = *pos;
              *pos = '\0';

@@ -8,6 +8,13 @@ the `v1`–`v4` history.
 
 ## Unreleased
 
+### Changed
+
+- **Bundled ffmpeg upgraded to jellyfin-ffmpeg 8.1.3** — the server's patched
+  `ffmpeg`/`ffprobe` move from jellyfin-ffmpeg 7.1.3-3 (FFmpeg 7.1.3) to
+  8.1.3-2 (FFmpeg 8.1.3) on all platforms. The fio patches are rebased onto
+  the new source; 8.1 introduces no new raw file syscalls that need tunneling.
+
 ## 5.2.1 - 2026-06-14
 
 ### Performance

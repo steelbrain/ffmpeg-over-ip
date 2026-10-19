@@ -141,7 +141,7 @@ if [ "$MINIMAL" -eq 1 ]; then
         --enable-protocol=file \
         --enable-protocol=pipe \
         --enable-demuxer=rawvideo,image2,matroska,mov,mpegts,lavfi \
-        --enable-muxer=rawvideo,image2,matroska,mpegts,hls,null \
+        --enable-muxer=rawvideo,image2,matroska,mpegts,mp4,hls,null \
         --enable-decoder=rawvideo,wrapped_avframe \
         --enable-encoder=rawvideo,wrapped_avframe \
         --enable-parser=h264,hevc \
