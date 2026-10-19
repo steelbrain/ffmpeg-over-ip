@@ -49,6 +49,13 @@ case "$TARGET" in
         ;;
 esac
 
+# jellyfin's build.sh zips the win64 artifact on the host, after the
+# container build finishes. Fail now rather than at the end of that build.
+if [[ "$TARGET" == win64 ]] && ! command -v zip &>/dev/null; then
+    echo "Error: win64 packaging requires 'zip' on the host"
+    exit 1
+fi
+
 # --- Helper: pull cached image or build locally ---
 build_or_pull() {
     local local_tag="$1"
