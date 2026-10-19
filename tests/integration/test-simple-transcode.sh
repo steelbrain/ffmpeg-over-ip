@@ -92,11 +92,14 @@ echo "PASS: output size matches expected frame count (5 frames × $FRAME_SIZE by
 echo ""
 echo "--- Test 4: ffprobe reads file via fio ---"
 
+# ffprobe has no -pix_fmt (that's an ffmpeg CLI option); the rawvideo demuxer
+# option is -pixel_format. Match the stream line, not the banner's configure
+# flags, which contain "rawvideo" in minimal builds.
 PROBE_OUT=$("$HARNESS" "$FFPROBE" \
-    -f rawvideo -video_size 64x64 -pix_fmt yuv420p \
+    -f rawvideo -video_size 64x64 -pixel_format yuv420p \
     "$INPUT2" 2>&1 || true)
 
-if echo "$PROBE_OUT" | grep -q "rawvideo"; then
+if echo "$PROBE_OUT" | grep -q "Video: rawvideo"; then
     echo "PASS: ffprobe parsed input via fio"
 else
     echo "FAIL: ffprobe could not parse input via fio"
