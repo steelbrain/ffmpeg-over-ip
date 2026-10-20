@@ -9,11 +9,13 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/tidwall/jsonc"
 )
 
-// LogValue is a string that also accepts JSON boolean false (meaning "disable logging").
+const DefaultDialTimeout = 2 * time.Second // default per-attempt dial timeout, small for fast failover
+
 type LogValue string
 
 func (l *LogValue) UnmarshalJSON(data []byte) error {
@@ -38,25 +40,46 @@ type ServerConfig struct {
 }
 
 type ClientConfig struct {
-	Log              LogValue    `json:"log"`
-	Address          string      `json:"address"`
-	AuthSecret       string      `json:"authSecret"`
+	Log LogValue `json:"log"`
+	Address string `json:"address"`
+	AuthSecret string `json:"authSecret"`
+	// DialTimeout is per-attempt connect timeout. Go duration string with units:
+	// "500ms" or "0.5s" = half second, "2s" = 2 seconds (default), "1m" = 1 minute.
+	// Use small for fast failover across many little nodes.
+	DialTimeout      string      `json:"dialTimeout"`
 	FallbackToLocal  bool        `json:"fallbackToLocal"`
 	FallbackRewrites [][2]string `json:"fallbackRewrites"`
 	Debug            bool        `json:"debug"`
 }
 
-// LoadServerConfig loads the server config. If explicitPath is non-empty, it
-// loads from that path directly. Otherwise it checks env vars, then searches
-// standard paths.
+func (c *ClientConfig) Addresses() []string {
+	out := []string{}
+	for _, p := range strings.Split(c.Address, ",") {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func (c *ClientConfig) DialTimeoutDuration() time.Duration {
+	if c.DialTimeout == "" {
+		return DefaultDialTimeout
+	}
+	d, err := time.ParseDuration(c.DialTimeout)
+	if err != nil || d < 0 {
+		log.Printf("invalid dialTimeout %q, using %s", c.DialTimeout, DefaultDialTimeout)
+		return DefaultDialTimeout
+	}
+	return d
+}
+
 func LoadServerConfig(explicitPath string) (*ServerConfig, error) {
-	// If no explicit path and no _CONFIG env var, try individual env vars
 	if explicitPath == "" && os.Getenv("FFMPEG_OVER_IP_SERVER_CONFIG") == "" {
 		if cfg := serverConfigFromEnv(); cfg != nil {
 			return cfg, nil
 		}
 	}
-
 	data, err := loadConfigBytes(explicitPath, "server")
 	if err != nil {
 		return nil, err
@@ -74,17 +97,12 @@ func LoadServerConfig(explicitPath string) (*ServerConfig, error) {
 	return &cfg, nil
 }
 
-// LoadClientConfig loads the client config. If explicitPath is non-empty, it
-// loads from that path directly. Otherwise it checks env vars, then searches
-// standard paths.
 func LoadClientConfig(explicitPath string) (*ClientConfig, error) {
-	// If no explicit path and no _CONFIG env var, try individual env vars
 	if explicitPath == "" && os.Getenv("FFMPEG_OVER_IP_CLIENT_CONFIG") == "" {
 		if cfg := clientConfigFromEnv(); cfg != nil {
 			return cfg, nil
 		}
 	}
-
 	data, err := loadConfigBytes(explicitPath, "client")
 	if err != nil {
 		return nil, err
@@ -96,14 +114,15 @@ func LoadClientConfig(explicitPath string) (*ClientConfig, error) {
 	if cfg.Address == "" {
 		return nil, fmt.Errorf("config: address is required")
 	}
+	if len(cfg.Addresses()) == 0 {
+		return nil, fmt.Errorf("config: address %q contains no usable entries", cfg.Address)
+	}
 	if cfg.AuthSecret == "" {
 		return nil, fmt.Errorf("config: authSecret is required")
 	}
 	return &cfg, nil
 }
 
-// serverConfigFromEnv builds a ServerConfig from individual environment variables.
-// Returns nil unless both ADDRESS and AUTH_SECRET are set.
 func serverConfigFromEnv() *ServerConfig {
 	address := os.Getenv("FFMPEG_OVER_IP_SERVER_ADDRESS")
 	authSecret := os.Getenv("FFMPEG_OVER_IP_SERVER_AUTH_SECRET")
@@ -118,8 +137,6 @@ func serverConfigFromEnv() *ServerConfig {
 	}
 }
 
-// clientConfigFromEnv builds a ClientConfig from individual environment variables.
-// Returns nil unless both ADDRESS and AUTH_SECRET are set.
 func clientConfigFromEnv() *ClientConfig {
 	address := os.Getenv("FFMPEG_OVER_IP_CLIENT_ADDRESS")
 	authSecret := os.Getenv("FFMPEG_OVER_IP_CLIENT_AUTH_SECRET")
@@ -130,13 +147,12 @@ func clientConfigFromEnv() *ClientConfig {
 		Address:         address,
 		AuthSecret:      authSecret,
 		Log:             LogValue(os.Getenv("FFMPEG_OVER_IP_CLIENT_LOG")),
+		DialTimeout:     os.Getenv("FFMPEG_OVER_IP_CLIENT_DIAL_TIMEOUT"),
 		FallbackToLocal: parseLaxBool(os.Getenv("FFMPEG_OVER_IP_CLIENT_FALLBACK_TO_LOCAL")),
 		Debug:           parseLaxBool(os.Getenv("FFMPEG_OVER_IP_CLIENT_DEBUG")),
 	}
 }
 
-// parseLaxBool parses a boolean string leniently.
-// "true", "1", "yes", "y" (case-insensitive) → true; everything else → false.
 func parseLaxBool(s string) bool {
 	switch strings.ToLower(s) {
 	case "true", "1", "yes", "y":
@@ -150,7 +166,6 @@ func loadConfigBytes(explicitPath, configType string) ([]byte, error) {
 	if explicitPath != "" {
 		return readJSONC(explicitPath)
 	}
-
 	paths := searchPaths(configType)
 	for _, p := range paths {
 		data, err := readJSONC(p)
@@ -161,11 +176,9 @@ func loadConfigBytes(explicitPath, configType string) ([]byte, error) {
 			return nil, fmt.Errorf("reading %s: %w", p, err)
 		}
 	}
-
 	return nil, fmt.Errorf("no config file found (searched %d paths)", len(paths))
 }
 
-// SearchPaths returns the list of paths searched for a config file of the given type.
 func SearchPaths(configType string) []string {
 	return searchPaths(configType)
 }
@@ -174,43 +187,28 @@ func searchPaths(configType string) []string {
 	envKey := fmt.Sprintf("FFMPEG_OVER_IP_%s_CONFIG", strings.ToUpper(configType))
 	filename := fmt.Sprintf("ffmpeg-over-ip.%s.jsonc", configType)
 	hiddenFilename := "." + filename
-
 	var paths []string
-
 	if envPath := os.Getenv(envKey); envPath != "" {
 		paths = append(paths, envPath)
 	}
-
 	if exe, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exe)
 		paths = append(paths, filepath.Join(exeDir, filename))
 		paths = append(paths, filepath.Join(exeDir, hiddenFilename))
 	}
-
 	if cwd, err := os.Getwd(); err == nil {
 		paths = append(paths, filepath.Join(cwd, filename))
 		paths = append(paths, filepath.Join(cwd, hiddenFilename))
 	}
-
 	if home, err := os.UserHomeDir(); err == nil {
 		paths = append(paths, filepath.Join(home, hiddenFilename))
 		paths = append(paths, filepath.Join(home, ".config", filename))
 	}
-
 	paths = append(paths, filepath.Join("/etc", filename))
 	paths = append(paths, filepath.Join("/usr/local/etc", filename))
-
 	return paths
 }
 
-// SetupLogging configures the global logger based on the log config value.
-// Supported values: "stdout", "stderr", "" / false (discard), or a file path.
-// File paths support $TMPDIR, $HOME, and $USER interpolation.
-//
-// Returns a cleanup func that releases any underlying file handle and
-// re-routes log output to io.Discard. For non-file sinks it's a no-op.
-// Callers should defer it on shutdown so the file handle isn't leaked
-// across reloads (and so Windows can delete temp log dirs in tests).
 func SetupLogging(logValue LogValue) func() {
 	switch logValue {
 	case "stdout":
@@ -240,19 +238,13 @@ func SetupLogging(logValue LogValue) func() {
 	return func() {}
 }
 
-// expandLogVars expands allow-listed environment variables in a log path.
-// Supports both ${VAR} (braced) and $VAR (bare) syntax. Bare $VAR only
-// expands when followed by a non-identifier character or end of string,
-// so $HOME expands but $HOMEDIR does not. Use ${HOME}dir for disambiguation.
 func expandLogVars(s string) string {
 	for _, key := range []string{"TMPDIR", "HOME", "USER", "PWD"} {
 		val := resolveVar(key)
 		if val == "" {
 			continue
 		}
-		// Expand ${VAR} first (unambiguous, no boundary check needed)
 		s = strings.ReplaceAll(s, "${"+key+"}", val)
-		// Then expand bare $VAR with word boundary check
 		token := "$" + key
 		var result strings.Builder
 		for {
@@ -280,7 +272,6 @@ func isIdentChar(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
 }
 
-// resolveVar returns the value for an allow-listed variable using OS APIs.
 func resolveVar(key string) string {
 	switch key {
 	case "TMPDIR":
@@ -304,9 +295,6 @@ func resolveVar(key string) string {
 	return ""
 }
 
-// ParseAddress returns the network type and address from a config address string.
-// Addresses prefixed with "unix:" are treated as Unix domain sockets (the prefix
-// is stripped). All other addresses are treated as TCP.
 func ParseAddress(address string) (network, addr string) {
 	if after, ok := strings.CutPrefix(address, "unix:"); ok {
 		return "unix", after
@@ -314,7 +302,6 @@ func ParseAddress(address string) (network, addr string) {
 	return "tcp", address
 }
 
-// readJSONC reads a file, strips JSONC comments and trailing commas, and returns clean JSON bytes.
 func readJSONC(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
