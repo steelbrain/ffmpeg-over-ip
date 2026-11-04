@@ -3,7 +3,7 @@
 scan-raw-syscalls.py — Static analysis for raw file syscalls in patched ffmpeg.
 
 Two-level scan:
-1. STRICT: Files we patch (file.c, hlsenc.c, utils.c) must have zero raw file
+1. STRICT: Files we patch (file.c, hlsenc.c, img2dec.c, utils.c) must have zero raw file
    syscalls unless marked with '// fio-safe'.
 2. AUDIT: All other libavformat files are checked against a file-level allowlist.
    If a new file appears with raw syscalls, it may need patching.
@@ -22,6 +22,7 @@ SYSCALL_NAMES = {
     "open", "openat", "read", "write", "close",
     "unlink", "rename", "mkdir", "rmdir",
     "fstat", "lseek", "ftruncate", "access", "stat",
+    "lstat", "opendir", "readdir", "closedir",
 }
 
 # Regex: bare syscall name preceded by a non-identifier char, followed by '('
@@ -34,7 +35,7 @@ SYSCALL_RE = re.compile(
 SAFE_PREFIXES = {"fio_", "av_", "ff_", "avio_", "url_", "avpriv_"}
 
 # Files we've patched — these get strict checking
-PATCHED_FILES = {"file.c", "hlsenc.c", "utils.c"}
+PATCHED_FILES = {"file.c", "hlsenc.c", "img2dec.c", "utils.c"}
 
 # Files that are part of the fio layer itself
 FIO_FILES = {"fio.c", "fio.h"}

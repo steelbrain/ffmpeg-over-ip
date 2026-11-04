@@ -183,18 +183,50 @@ func testMessages() []messageSpec {
 				return nil
 			},
 		},
+		{
+			msgType: protocol.MsgStat,
+			encode: func() []byte {
+				return (&protocol.PathRequest{RequestID: 41, Path: "/fonts/a.ttf"}).Encode()
+			},
+			verify: func(p []byte) error {
+				m, err := protocol.DecodePathRequest(p)
+				if err != nil {
+					return err
+				}
+				if m.RequestID != 41 || m.Path != "/fonts/a.ttf" {
+					return fmt.Errorf("Stat mismatch: %+v", m)
+				}
+				return nil
+			},
+		},
+		{
+			msgType: protocol.MsgListDir,
+			encode: func() []byte {
+				return (&protocol.PathRequest{RequestID: 42, Path: "/fonts"}).Encode()
+			},
+			verify: func(p []byte) error {
+				m, err := protocol.DecodePathRequest(p)
+				if err != nil {
+					return err
+				}
+				if m.RequestID != 42 || m.Path != "/fonts" {
+					return fmt.Errorf("ListDir mismatch: %+v", m)
+				}
+				return nil
+			},
+		},
 		// --- Responses ---
 		{
 			msgType: protocol.MsgOpenOk,
 			encode: func() []byte {
-				return (&protocol.OpenOkResponse{RequestID: 1, FileSize: 524288000}).Encode()
+				return (&protocol.OpenOkResponse{RequestID: 1, FileSize: 524288000, Mode: protocol.FioSIFIFO | 0o640}).Encode()
 			},
 			verify: func(p []byte) error {
 				m, err := protocol.DecodeOpenOkResponse(p)
 				if err != nil {
 					return err
 				}
-				if m.RequestID != 1 || m.FileSize != 524288000 {
+				if m.RequestID != 1 || m.FileSize != 524288000 || m.Mode != protocol.FioSIFIFO|0o640 {
 					return fmt.Errorf("OpenOk mismatch: %+v", m)
 				}
 				return nil
@@ -353,6 +385,50 @@ func testMessages() []messageSpec {
 			},
 		},
 		{
+			msgType: protocol.MsgStatOk,
+			encode: func() []byte {
+				return (&protocol.StatOkResponse{RequestID: 41, Size: 123456789012, Mode: 0100644, Mtime: -5, Access: 0x05}).Encode()
+			},
+			verify: func(p []byte) error {
+				m, err := protocol.DecodeStatOkResponse(p)
+				if err != nil {
+					return err
+				}
+				if m.RequestID != 41 || m.Size != 123456789012 || m.Mode != 0100644 || m.Mtime != -5 || m.Access != 0x05 {
+					return fmt.Errorf("StatOk mismatch: %+v", m)
+				}
+				return nil
+			},
+		},
+		{
+			msgType: protocol.MsgListDirOk,
+			encode: func() []byte {
+				return (&protocol.ListDirOkResponse{RequestID: 42, Entries: []protocol.DirEntry{
+					{Name: "a.ttf", Mode: 0100644, Size: 1234, Mtime: 1700000000},
+					{Name: "sub", Mode: 040755, Size: 96, Mtime: -1},
+				}}).Encode()
+			},
+			verify: func(p []byte) error {
+				m, err := protocol.DecodeListDirOkResponse(p)
+				if err != nil {
+					return err
+				}
+				want := []protocol.DirEntry{
+					{Name: "a.ttf", Mode: 0100644, Size: 1234, Mtime: 1700000000},
+					{Name: "sub", Mode: 040755, Size: 96, Mtime: -1},
+				}
+				if m.RequestID != 42 || len(m.Entries) != len(want) {
+					return fmt.Errorf("ListDirOk mismatch: %+v", m)
+				}
+				for i := range want {
+					if m.Entries[i] != want[i] {
+						return fmt.Errorf("ListDirOk entry %d: %+v", i, m.Entries[i])
+					}
+				}
+				return nil
+			},
+		},
+		{
 			msgType: protocol.MsgIoError,
 			encode: func() []byte {
 				return (&protocol.IoErrorResponse{RequestID: 1, Errno: 2}).Encode()
@@ -375,10 +451,10 @@ func msgTypeName(t uint8) string {
 	names := map[uint8]string{
 		0x20: "Open", 0x21: "Read", 0x22: "Write", 0x23: "Seek",
 		0x24: "Close", 0x25: "Fstat", 0x26: "Ftruncate",
-		0x27: "Unlink", 0x28: "Rename", 0x29: "Mkdir",
+		0x27: "Unlink", 0x28: "Rename", 0x29: "Mkdir", 0x2A: "Stat", 0x2B: "ListDir",
 		0x40: "OpenOk", 0x41: "ReadOk", 0x42: "WriteOk", 0x43: "SeekOk",
 		0x44: "CloseOk", 0x45: "FstatOk", 0x46: "FtruncateOk",
-		0x47: "UnlinkOk", 0x48: "RenameOk", 0x49: "MkdirOk",
+		0x47: "UnlinkOk", 0x48: "RenameOk", 0x49: "MkdirOk", 0x4A: "StatOk", 0x4B: "ListDirOk",
 		0x4F: "IoError",
 	}
 	if n, ok := names[t]; ok {

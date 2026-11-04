@@ -1,0 +1,21 @@
+diff --git a/libavformat/img2dec.c b/libavformat/img2dec.c
+index ecb7ea8..c56dd36 100644
+--- a/libavformat/img2dec.c
++++ b/libavformat/img2dec.c
+@@ -40,6 +40,7 @@
+ #include "internal.h"
+ #include "img2.h"
+ #include "os_support.h"
++#include "fio.h"
+ #include "libavcodec/jpegxl_parse.h"
+ #include "libavcodec/mjpeg.h"
+ #include "libavcodec/vbn.h"
+@@ -474,7 +475,7 @@ int ff_img_read_packet(AVFormatContext *s1, AVPacket *pkt)
+     if (s->ts_from_file) {
+         struct stat img_stat;
+         av_assert0(!s->is_pipe); // The ts_from_file option is not supported by piped input demuxers
+-        if (stat(filename.str, &img_stat)) {
++        if (fio_stat(filename.str, &img_stat)) { /* tunneled: whole seconds */
+             res = AVERROR(errno);
+             goto fail;
+         }

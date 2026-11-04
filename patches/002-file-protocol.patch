@@ -1,5 +1,5 @@
 diff --git a/libavformat/file.c b/libavformat/file.c
-index 3ceddc8..d9213b6 100644
+index 3ceddc8..d497b51 100644
 --- a/libavformat/file.c
 +++ b/libavformat/file.c
 @@ -41,6 +41,7 @@
@@ -10,7 +10,15 @@ index 3ceddc8..d9213b6 100644
  
  /* Some systems may not have S_ISFIFO */
  #ifndef S_ISFIFO
-@@ -143,7 +144,7 @@ static int file_read(URLContext *h, unsigned char *buf, int size)
+@@ -100,6 +101,7 @@ typedef struct FileContext {
+ #if HAVE_DIRENT_H
+     DIR *dir;
+ #endif
++    fio_dir *fdir;   /* directory listing over the fio tunnel */
+ } FileContext;
+ 
+ static const AVOption file_options[] = {
+@@ -143,7 +145,7 @@ static int file_read(URLContext *h, unsigned char *buf, int size)
      FileContext *c = h->priv_data;
      int ret;
      size = FFMIN(size, c->blocksize);
@@ -19,7 +27,7 @@ index 3ceddc8..d9213b6 100644
      if (ret == 0 && c->follow)
          return AVERROR(EAGAIN);
      if (ret == 0)
-@@ -156,7 +157,7 @@ static int file_write(URLContext *h, const unsigned char *buf, int size)
+@@ -156,7 +158,7 @@ static int file_write(URLContext *h, const unsigned char *buf, int size)
      FileContext *c = h->priv_data;
      int ret;
      size = FFMIN(size, c->blocksize);
@@ -28,29 +36,43 @@ index 3ceddc8..d9213b6 100644
      return (ret == -1) ? AVERROR(errno) : ret;
  }
  
-@@ -174,17 +175,17 @@ static int file_check(URLContext *h, int mask)
+@@ -172,19 +174,31 @@ static int file_check(URLContext *h, int mask)
+     const char *filename = h->filename;
+     av_strstart(filename, "file:", &filename);
  
++    if (fio_tunneled()) {
++        /* a local check would look at the server's filesystem */
++        int granted = fio_check(filename);
++        if (granted < 0)
++            return AVERROR(errno);
++        if ((mask & AVIO_FLAG_READ) && (granted & FIO_R_OK))
++            ret |= AVIO_FLAG_READ;
++        if ((mask & AVIO_FLAG_WRITE) && (granted & FIO_W_OK))
++            ret |= AVIO_FLAG_WRITE;
++        return ret;
++    }
++
      {
  #if HAVE_ACCESS && defined(R_OK)
 -    if (access(filename, F_OK) < 0)
-+    if (access(filename, F_OK) < 0) // fio-safe: file_check uses access for URL checking
++    if (access(filename, F_OK) < 0) // fio-safe: not tunneled (checked above)
          return AVERROR(errno);
      if (mask&AVIO_FLAG_READ)
 -        if (access(filename, R_OK) >= 0)
-+        if (access(filename, R_OK) >= 0) // fio-safe
++        if (access(filename, R_OK) >= 0) // fio-safe: not tunneled
              ret |= AVIO_FLAG_READ;
      if (mask&AVIO_FLAG_WRITE)
 -        if (access(filename, W_OK) >= 0)
-+        if (access(filename, W_OK) >= 0) // fio-safe
++        if (access(filename, W_OK) >= 0) // fio-safe: not tunneled
              ret |= AVIO_FLAG_WRITE;
  #else
      struct stat st;
 -    ret = stat(filename, &st);
-+    ret = stat(filename, &st); // fio-safe: file_check fallback
++    ret = stat(filename, &st); // fio-safe: not tunneled
      if (ret < 0)
          return AVERROR(errno);
  
-@@ -223,7 +224,7 @@ static int fd_dup(URLContext *h, int oldfd)
+@@ -223,7 +237,7 @@ static int fd_dup(URLContext *h, int oldfd)
  static int file_close(URLContext *h)
  {
      FileContext *c = h->priv_data;
@@ -59,7 +81,7 @@ index 3ceddc8..d9213b6 100644
      return (ret == -1) ? AVERROR(errno) : 0;
  }
  
-@@ -235,11 +236,11 @@ static int64_t file_seek(URLContext *h, int64_t pos, int whence)
+@@ -235,11 +249,11 @@ static int64_t file_seek(URLContext *h, int64_t pos, int whence)
  
      if (whence == AVSEEK_SIZE) {
          struct stat st;
@@ -73,7 +95,7 @@ index 3ceddc8..d9213b6 100644
  
      return ret < 0 ? AVERROR(errno) : ret;
  }
-@@ -248,25 +249,13 @@ static int64_t file_seek(URLContext *h, int64_t pos, int whence)
+@@ -248,22 +262,30 @@ static int64_t file_seek(URLContext *h, int64_t pos, int whence)
  
  static int file_delete(URLContext *h)
  {
@@ -83,25 +105,32 @@ index 3ceddc8..d9213b6 100644
      av_strstart(filename, "file:", &filename);
  
 -    ret = rmdir(filename);
--    if (ret < 0 && (errno == ENOTDIR
--#   ifdef _WIN32
--        || errno == EINVAL
--#   endif
--        ))
++    if (fio_tunneled()) {
++        /* The client removes files and empty directories alike. */
++        if (fio_unlink(filename) < 0)
++            return AVERROR(errno);
++        return 0;
++    }
++
++#if HAVE_UNISTD_H
++    {
++    int ret = rmdir(filename); // fio-safe: not tunneled
+     if (ret < 0 && (errno == ENOTDIR
+ #   ifdef _WIN32
+         || errno == EINVAL
+ #   endif
+         ))
 -        ret = unlink(filename);
--    if (ret < 0)
-+    if (fio_unlink(filename) < 0)
++        ret = unlink(filename); // fio-safe: not tunneled
+     if (ret < 0)
          return AVERROR(errno);
  
--    return ret;
--#else
--    return AVERROR(ENOSYS);
--#endif /* HAVE_UNISTD_H */
-+    return 0;
- }
- 
- static int file_move(URLContext *h_src, URLContext *h_dst)
-@@ -276,7 +265,7 @@ static int file_move(URLContext *h_src, URLContext *h_dst)
+     return ret;
++    }
+ #else
+     return AVERROR(ENOSYS);
+ #endif /* HAVE_UNISTD_H */
+@@ -276,7 +298,7 @@ static int file_move(URLContext *h_src, URLContext *h_dst)
      av_strstart(filename_src, "file:", &filename_src);
      av_strstart(filename_dst, "file:", &filename_dst);
  
@@ -110,7 +139,7 @@ index 3ceddc8..d9213b6 100644
          return AVERROR(errno);
  
      return 0;
-@@ -305,12 +294,12 @@ static int file_open(URLContext *h, const char *filename, int flags)
+@@ -305,12 +327,12 @@ static int file_open(URLContext *h, const char *filename, int flags)
  #ifdef O_BINARY
      access |= O_BINARY;
  #endif
@@ -125,7 +154,130 @@ index 3ceddc8..d9213b6 100644
  
      if (c->pkt_size) {
          h->max_packet_size = c->pkt_size;
-@@ -503,7 +492,7 @@ static int fd_open(URLContext *h, const char *filename, int flags)
+@@ -333,10 +355,22 @@ static int file_open(URLContext *h, const char *filename, int flags)
+ 
+ static int file_open_dir(URLContext *h)
+ {
++    /* avio_close_dir() ends with url_close(), which would close fd 0: no
++     * file is open here and priv_data starts zeroed. */
++    ((FileContext *)h->priv_data)->fd = -1;
++
++    if (fio_tunneled()) {
++        FileContext *c = h->priv_data;
++        const char *dirname = h->filename;
++        av_strstart(dirname, "file:", &dirname);
++        c->fdir = fio_opendir(dirname);
++        return c->fdir ? 0 : AVERROR(errno);
++    }
++    {
+ #if HAVE_LSTAT
+     FileContext *c = h->priv_data;
+ 
+-    c->dir = opendir(h->filename);
++    c->dir = opendir(h->filename); // fio-safe: not tunneled
+     if (!c->dir)
+         return AVERROR(errno);
+ 
+@@ -344,10 +378,52 @@ static int file_open_dir(URLContext *h)
+ #else
+     return AVERROR(ENOSYS);
+ #endif /* HAVE_LSTAT */
++    }
++}
++
++static int fio_read_dir_entry(URLContext *h, AVIODirEntry **next)
++{
++    FileContext *c = h->priv_data;
++    fio_dirent e;
++    int ret;
++
++    *next = ff_alloc_dir_entry();
++    if (!*next)
++        return AVERROR(ENOMEM);
++    ret = fio_readdir(c->fdir, &e);
++    if (ret <= 0) {
++        av_freep(next);
++        return ret < 0 ? AVERROR(errno) : 0;
++    }
++
++    switch (e.type) {
++    case FIO_DT_FILE: (*next)->type = AVIO_ENTRY_FILE;             break;
++    case FIO_DT_DIR:  (*next)->type = AVIO_ENTRY_DIRECTORY;        break;
++    case FIO_DT_LINK: (*next)->type = AVIO_ENTRY_SYMBOLIC_LINK;    break;
++    case FIO_DT_FIFO: (*next)->type = AVIO_ENTRY_NAMED_PIPE;       break;
++    case FIO_DT_CHR:  (*next)->type = AVIO_ENTRY_CHARACTER_DEVICE; break;
++    case FIO_DT_BLK:  (*next)->type = AVIO_ENTRY_BLOCK_DEVICE;     break;
++    case FIO_DT_SOCK: (*next)->type = AVIO_ENTRY_SOCKET;           break;
++    default:          (*next)->type = AVIO_ENTRY_UNKNOWN;          break;
++    }
++    if (e.has_stat) {
++        (*next)->size = e.size;
++        (*next)->filemode = e.perm;
++        (*next)->modification_timestamp = INT64_C(1000000) * e.mtime;
++    }
++    (*next)->name = av_strdup(e.name);
++    if (!(*next)->name) {
++        avio_free_directory_entry(next);
++        return AVERROR(ENOMEM);
++    }
++    return 0;
+ }
+ 
+ static int file_read_dir(URLContext *h, AVIODirEntry **next)
+ {
++    if (fio_tunneled())
++        return fio_read_dir_entry(h, next);
++    {
+ #if HAVE_LSTAT
+     FileContext *c = h->priv_data;
+     struct dirent *dir;
+@@ -358,7 +434,7 @@ static int file_read_dir(URLContext *h, AVIODirEntry **next)
+         return AVERROR(ENOMEM);
+     do {
+         errno = 0;
+-        dir = readdir(c->dir);
++        dir = readdir(c->dir); // fio-safe: not tunneled
+         if (!dir) {
+             av_freep(next);
+             return AVERROR(errno);
+@@ -368,7 +444,7 @@ static int file_read_dir(URLContext *h, AVIODirEntry **next)
+     fullpath = av_append_path_component(h->filename, dir->d_name);
+     if (fullpath) {
+         struct stat st;
+-        if (!lstat(fullpath, &st)) {
++        if (!lstat(fullpath, &st)) { // fio-safe: not tunneled
+             if (S_ISDIR(st.st_mode))
+                 (*next)->type = AVIO_ENTRY_DIRECTORY;
+             else if (S_ISFIFO(st.st_mode))
+@@ -402,17 +478,25 @@ static int file_read_dir(URLContext *h, AVIODirEntry **next)
+ #else
+     return AVERROR(ENOSYS);
+ #endif /* HAVE_LSTAT */
++    }
+ }
+ 
+ static int file_close_dir(URLContext *h)
+ {
+-#if HAVE_LSTAT
+     FileContext *c = h->priv_data;
+-    closedir(c->dir);
++    if (c->fdir) {
++        fio_closedir(c->fdir);
++        c->fdir = NULL;
++        return 0;
++    }
++    {
++#if HAVE_LSTAT
++    closedir(c->dir); // fio-safe: not tunneled
+     return 0;
+ #else
+     return AVERROR(ENOSYS);
+ #endif /* HAVE_LSTAT */
++    }
+ }
+ 
+ const URLProtocol ff_file_protocol = {
+@@ -503,7 +587,7 @@ static int fd_open(URLContext *h, const char *filename, int flags)
              c->fd = 0;
          }
      }
@@ -134,7 +286,7 @@ index 3ceddc8..d9213b6 100644
          return AVERROR(errno);
      h->is_streamed = !(S_ISREG(st.st_mode) || S_ISBLK(st.st_mode));
      c->fd = fd_dup(h, c->fd);
-@@ -642,8 +631,8 @@ static int android_content_open(URLContext *h, const char *filename, int flags)
+@@ -642,8 +726,8 @@ static int android_content_open(URLContext *h, const char *filename, int flags)
      if (ret < 0)
          goto done;
  

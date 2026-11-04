@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -9,10 +10,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
+	"time"
 
-	"github.com/steelbrain/ffmpeg-over-ip/internal/auth"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/config"
+	"github.com/steelbrain/ffmpeg-over-ip/internal/handshake"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/process"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/protocol"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/rewrite"
@@ -75,45 +78,70 @@ func main() {
 		}
 	}()
 
+	var sessions sync.WaitGroup
+	var acceptDelay time.Duration
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			if ctx.Err() != nil {
-				return // shutting down
+				break // shutting down
 			}
-			log.Printf("accept error: %v", err)
+			// Back off on errors such as EMFILE, which would otherwise
+			// repeat at once and fill the log.
+			if acceptDelay == 0 {
+				acceptDelay = 5 * time.Millisecond
+			} else if acceptDelay *= 2; acceptDelay > time.Second {
+				acceptDelay = time.Second
+			}
+			log.Printf("accept error: %v; retrying in %v", err, acceptDelay)
+			time.Sleep(acceptDelay)
 			continue
 		}
+		acceptDelay = 0
 
-		go handleConnection(ctx, conn, cfg, ffmpegPath, ffprobePath)
+		sessions.Add(1)
+		go func() {
+			defer sessions.Done()
+			handleConnection(ctx, conn, cfg, ffmpegPath, ffprobePath)
+		}()
+	}
+
+	// Every session sees ctx canceled and stops its child. Wait for them so
+	// no ffmpeg outlives the server. Restore default signal handling first,
+	// so a second Ctrl-C still exits immediately.
+	cancel()
+	done := make(chan struct{})
+	go func() {
+		sessions.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(process.KillTimeout + 5*time.Second):
+		log.Printf("shutdown: timed out waiting for sessions to stop")
 	}
 }
 
 func handleConnection(ctx context.Context, conn net.Conn, cfg *config.ServerConfig, ffmpegPath, ffprobePath string) {
-	defer conn.Close()
+	// After an error message (or a finished session, which has closed conn
+	// already), let the client read it before the connection goes away.
+	defer session.CloseGracefully(conn, 5*time.Second)
 
-	// Read command message
-	msg, err := protocol.ReadMessageFrom(conn)
+	// Both sides prove they know the secret, then the client sends the
+	// signed command (bounded by handshake.Timeout).
+	cmd, err := handshake.Server(conn, cfg.AuthSecret)
 	if err != nil {
-		log.Printf("failed to read command: %v", err)
-		return
-	}
-	if msg.Type != protocol.MsgCommand {
-		sendError(conn, fmt.Sprintf("expected command message (0x%02x), got 0x%02x", protocol.MsgCommand, msg.Type))
-		return
-	}
-
-	// Decode command
-	cmd, err := protocol.DecodeCommandMessage(msg.Payload)
-	if err != nil {
-		sendError(conn, fmt.Sprintf("invalid command: %v", err))
+		var rejected *handshake.Rejected
+		if errors.As(err, &rejected) && rejected.Msg == "authentication failed" {
+			log.Printf("auth failed from %s", conn.RemoteAddr())
+		} else {
+			log.Printf("handshake with %s failed: %v", conn.RemoteAddr(), err)
+		}
 		return
 	}
 
-	// Verify HMAC
-	if !auth.Verify(cfg.AuthSecret, protocol.CurrentVersion, cmd.Nonce, cmd.Signature, cmd.Program, cmd.Args) {
-		sendError(conn, "authentication failed")
-		log.Printf("auth failed from %s", conn.RemoteAddr())
+	if ctx.Err() != nil {
+		sendError(conn, "server is shutting down")
 		return
 	}
 

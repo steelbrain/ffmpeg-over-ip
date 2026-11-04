@@ -1,8 +1,8 @@
 package main
 
 import (
-	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -11,13 +11,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/steelbrain/ffmpeg-over-ip/internal/auth"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/config"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/filehandler"
+	"github.com/steelbrain/ffmpeg-over-ip/internal/handshake"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/protocol"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/session"
 )
@@ -72,48 +71,34 @@ func main() {
 	}
 	defer conn.Close()
 
-	// Generate nonce
-	var nonce [protocol.NonceLength]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		log.Fatalf("failed to generate nonce: %v", err)
-	}
-
-	// Sign and send command
-	sig := auth.Sign(cfg.AuthSecret, protocol.CurrentVersion, nonce, program, args)
-	cmd := &protocol.CommandMessage{
-		Nonce:     nonce,
-		Signature: sig,
-		Program:   program,
-		Args:      args,
-	}
-	if err := protocol.WriteMessageTo(conn, protocol.MsgCommand, cmd.Encode()); err != nil {
-		log.Fatalf("failed to send command: %v", err)
+	// Both sides prove they know the secret, then the signed command goes
+	// to the server.
+	if err := handshake.Client(conn, cfg.AuthSecret, program, args); err != nil {
+		// Always on stderr, like errors the server reports: the log is
+		// discarded unless configured, and these need the user's attention.
+		var serverErr *handshake.ServerError
+		if !errors.As(err, &serverErr) && !errors.Is(err, handshake.ErrServerAuth) {
+			err = fmt.Errorf("handshake with %s failed: %w", addr, err)
+		}
+		log.Print(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 
 	// Set up serialized writer for concurrent TCP writes
 	w := session.NewWriter(conn)
 
-	// Track last received message for keepalive
-	var lastRecv atomic.Int64
-	lastRecv.Store(time.Now().UnixNano())
+	// How long the message loop has waited for the server, for keepalive
+	var waiting waitTimer
+	waiting.start()
 
 	// Exit code channel — set when MsgExitCode is received
 	exitCh := make(chan int, 1)
 
-	// Stdin forwarding
-	go func() {
-		buf := make([]byte, 32*1024)
-		for {
-			n, err := os.Stdin.Read(buf)
-			if n > 0 {
-				w.WriteMessage(protocol.MsgStdin, buf[:n])
-			}
-			if err != nil {
-				w.WriteMessage(protocol.MsgStdinClose, nil)
-				return
-			}
-		}
-	}()
+	// Stdin forwarding, at most protocol.StdinWindow bytes ahead of the
+	// server's acks
+	credit := newStdinCredit()
+	go pumpStdin(os.Stdin, w, credit)
 
 	// Signal handler (Ctrl-C)
 	go func() {
@@ -121,7 +106,9 @@ func main() {
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
 
-		w.WriteMessage(protocol.MsgCancel, nil)
+		// From its own goroutine: the write can wait behind one stuck on a
+		// dead connection, and the timeout below must start regardless.
+		go w.WriteMessage(protocol.MsgCancel, nil)
 
 		// Wait for exit code with timeout
 		select {
@@ -137,14 +124,18 @@ func main() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			if time.Since(w.LastSendTime()) >= keepaliveSendInterval {
-				w.WriteMessage(protocol.MsgPing, nil)
-			}
-			lr := time.Unix(0, lastRecv.Load())
-			if time.Since(lr) >= keepaliveRecvTimeout {
+			// Check for a silent server before pinging, and never wait
+			// behind a write that may be stuck on a dead connection. A
+			// write stuck that long also means the server is gone: it
+			// always reads what the client sends.
+			now := time.Now()
+			if waiting.waited(now) >= keepaliveRecvTimeout || w.StuckFor(now) >= keepaliveRecvTimeout {
 				log.Printf("server keepalive timeout")
 				conn.Close()
 				os.Exit(1)
+			}
+			if time.Since(w.LastSendTime()) >= keepaliveSendInterval {
+				w.TryWriteMessage(protocol.MsgPing, nil)
 			}
 		}
 	}()
@@ -155,6 +146,7 @@ func main() {
 
 	// Message loop (main goroutine)
 	for {
+		waiting.start()
 		msg, err := protocol.ReadMessageFrom(conn)
 		if err != nil {
 			if err == io.EOF {
@@ -162,8 +154,7 @@ func main() {
 			}
 			log.Fatalf("read error: %v", err)
 		}
-
-		lastRecv.Store(time.Now().UnixNano())
+		waiting.stop()
 
 		switch {
 		case protocol.IsFileIORequest(msg.Type):
@@ -181,12 +172,23 @@ func main() {
 			w.WriteMessage(respType, respPayload)
 
 		case msg.Type == protocol.MsgStdout:
-			os.Stdout.Write(msg.Payload)
+			if _, err := os.Stdout.Write(msg.Payload); err != nil {
+				// Whoever read our stdout is gone. On Unix SIGPIPE ends the
+				// client here; Windows has none, so exit the same way and
+				// let the server stop ffmpeg instead of running it to the
+				// end for nobody.
+				log.Printf("writing stdout: %v", err)
+				conn.Close()
+				os.Exit(1)
+			}
 
 		case msg.Type == protocol.MsgStderr:
 			os.Stderr.Write(msg.Payload)
 
 		case msg.Type == protocol.MsgExitCode:
+			if len(msg.Payload) < 4 {
+				log.Fatalf("malformed exit code message (%d bytes)", len(msg.Payload))
+			}
 			code := int(binary.BigEndian.Uint32(msg.Payload))
 			select {
 			case exitCh <- code:
@@ -199,10 +201,17 @@ func main() {
 			os.Exit(1)
 
 		case msg.Type == protocol.MsgPing:
-			w.WriteMessage(protocol.MsgPong, msg.Payload)
+			w.TryWriteMessage(protocol.MsgPong, msg.Payload)
+
+		case msg.Type == protocol.MsgStdinAck:
+			n, err := protocol.DecodeStdinAck(msg.Payload)
+			if err != nil {
+				log.Fatalf("malformed stdin ack: %v", err)
+			}
+			credit.release(int(n))
 
 		case msg.Type == protocol.MsgPong:
-			// keepalive response, nothing to do (lastRecv already updated)
+			// keepalive response, nothing to do
 
 		default:
 			log.Printf("unknown message type 0x%02x, ignoring", msg.Type)

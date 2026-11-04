@@ -1,0 +1,79 @@
+diff --git a/fftools/ffmpeg.h b/fftools/ffmpeg.h
+index 3e33438..8f03b4e 100644
+--- a/fftools/ffmpeg.h
++++ b/fftools/ffmpeg.h
+@@ -675,7 +675,7 @@ typedef struct OutputStream {
+     KeyframeForceCtx kf;
+ 
+     const char *logfile_prefix;
+-    FILE *logfile;
++    AVIOContext *logfile;
+ 
+     // simple filtergraph feeding this stream, if any
+     FilterGraph  *fg_simple;
+diff --git a/fftools/ffmpeg_enc.c b/fftools/ffmpeg_enc.c
+index a595912..e00a48b 100644
+--- a/fftools/ffmpeg_enc.c
++++ b/fftools/ffmpeg_enc.c
+@@ -667,7 +667,7 @@ static int encode_frame(OutputFile *of, OutputStream *ost, AVFrame *frame,
+ 
+         /* if two pass, output log on success and EOF */
+         if ((ret >= 0 || ret == AVERROR_EOF) && ost->logfile && enc->stats_out)
+-            fprintf(ost->logfile, "%s", enc->stats_out);
++            avio_write(ost->logfile, enc->stats_out, strlen(enc->stats_out));
+ 
+         if (ret == AVERROR(EAGAIN)) {
+             av_assert0(frame); // should never happen during flushing
+diff --git a/fftools/ffmpeg_mux.c b/fftools/ffmpeg_mux.c
+index 25f66dd..5b65e00 100644
+--- a/fftools/ffmpeg_mux.c
++++ b/fftools/ffmpeg_mux.c
+@@ -816,11 +816,11 @@ static void ost_free(OutputStream **post)
+     fg_free(&ost->fg_simple);
+ 
+     if (ost->logfile) {
+-        if (fclose(ost->logfile))
++        int ret = avio_closep(&ost->logfile);
++        if (ret < 0)
+             av_log(ms, AV_LOG_ERROR,
+                    "Error closing logfile, loss of information possible: %s\n",
+-                   av_err2str(AVERROR(errno)));
+-        ost->logfile = NULL;
++                   av_err2str(ret));
+     }
+ 
+     avcodec_parameters_free(&ms->par_in);
+diff --git a/fftools/ffmpeg_mux_init.c b/fftools/ffmpeg_mux_init.c
+index 35d3f10..11ac3c5 100644
+--- a/fftools/ffmpeg_mux_init.c
++++ b/fftools/ffmpeg_mux_init.c
+@@ -715,7 +715,6 @@ static int new_stream_video(Muxer *mux, const OptionsContext *o,
+         if (do_pass) {
+             int ost_idx = -1;
+             char logfilename[1024];
+-            FILE *f;
+ 
+             /* compute this stream's global index */
+             for (int idx = 0; idx <= ost->file->index; idx++)
+@@ -747,14 +746,16 @@ static int new_stream_video(Muxer *mux, const OptionsContext *o,
+                     video_enc->stats_in = logbuffer;
+                 }
+                 if (video_enc->flags & AV_CODEC_FLAG_PASS1) {
+-                    f = fopen_utf8(logfilename, "wb");
+-                    if (!f) {
++                    /* Through avio, like the pass-2 read above, so both
++                     * passes use the same file when fio tunnels file I/O. */
++                    ret = avio_open2(&ost->logfile, logfilename, AVIO_FLAG_WRITE,
++                                     &int_cb, NULL);
++                    if (ret < 0) {
+                         av_log(ost, AV_LOG_FATAL,
+                                "Cannot write log file '%s' for pass-1 encoding: %s\n",
+-                               logfilename, strerror(errno));
+-                        return AVERROR(errno);
++                               logfilename, av_err2str(ret));
++                        return ret;
+                     }
+-                    ost->logfile = f;
+                 }
+             }
+         }

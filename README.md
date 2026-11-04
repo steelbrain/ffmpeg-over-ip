@@ -77,7 +77,7 @@ See [docs/docker.md](docs/docker.md) for Docker integration, Unix socket setup, 
 ## How It Works
 
 1. Your media server calls `ffmpeg-over-ip-client` with normal ffmpeg arguments
-2. The client connects to the server and sends the command with HMAC authentication
+2. The client connects to the server; each proves to the other that it knows the shared secret, and the client sends the signed command
 3. The server launches its patched ffmpeg, which tunnels all file reads and writes back to the client
 4. stdout/stderr are forwarded in real-time; when ffmpeg exits, the client exits with the same code
 
@@ -104,7 +104,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, running tests, an
 
 ## Security
 
-- **Authentication**: HMAC-SHA256 with a shared secret. Every command is signed.
+- **Authentication**: Client and server each prove they know the shared secret (an HMAC-SHA256 challenge-response with a fresh nonce from each side). The client proves it first; the server answers with its own proof only after checking the client's, and the client acts on file requests only after checking the server's. A recorded command can't be replayed on a new connection.
+- **Use a long random secret**, for example the output of `openssl rand -hex 32`. Someone who records a session can test guesses of the secret against it offline, so a short or common secret can be found.
+- **No encryption**: Traffic, including command lines and file contents, is neither encrypted nor integrity-protected. Someone who can intercept and modify the connection can read and alter it, including by relaying the handshake to the real server and then changing what follows. Across a network you don't trust, run it over a VPN or SSH tunnel.
+- **What the secret allows**: Anyone with the secret can run ffmpeg on the server with any arguments, and can pose as the server to clients that use it, reading, writing or deleting any file the client's user can reach. File access goes to the client, except for the ffmpeg options listed in [troubleshooting](docs/troubleshooting.md#files-opened-on-the-server), which open files on the server itself.
 - **Single port**: Only the server listens on a port. The client makes outbound connections only.
 
 ## License

@@ -185,7 +185,7 @@ func execChild(binPath string, args []string) int {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	if err := cmd.Start(); err != nil {
+	if err := startFallbackChild(cmd); err != nil {
 		log.Printf("fallback: failed to start %s: %v", binPath, err)
 		return 1
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"strings"
 	"testing"
@@ -302,13 +303,23 @@ func TestMkdirRequestRoundTrip(t *testing.T) {
 // --- OpenOk response ---
 
 func TestOpenOkResponseRoundTrip(t *testing.T) {
-	resp := &OpenOkResponse{RequestID: 1, FileSize: 524288000}
-	decoded, err := DecodeOpenOkResponse(resp.Encode())
+	resp := &OpenOkResponse{RequestID: 1, FileSize: 524288000, Mode: FioSIFIFO | 0o644}
+	encoded := resp.Encode()
+	if len(encoded) != 14 {
+		t.Fatalf("encoded length: got %d, want 14", len(encoded))
+	}
+	decoded, err := DecodeOpenOkResponse(encoded)
 	if err != nil {
 		t.Fatalf("decode failed: %v", err)
 	}
 	if decoded.FileSize != 524288000 {
 		t.Errorf("FileSize: got %d, want 524288000", decoded.FileSize)
+	}
+	if decoded.Mode != FioSIFIFO|0o644 {
+		t.Errorf("Mode: got 0o%o, want 0o%o", decoded.Mode, FioSIFIFO|0o644)
+	}
+	if _, err := DecodeOpenOkResponse(encoded[:10]); err == nil {
+		t.Error("a 10-byte OpenOk (no mode) must be rejected")
 	}
 }
 
@@ -499,6 +510,20 @@ func TestCommandMessageWrongVersion(t *testing.T) {
 	}
 }
 
+// A client from the previous release (protocol 0x06, before MsgStat and
+// MsgListDir) is rejected with an error that says why.
+func TestCommandMessagePreviousReleaseRejected(t *testing.T) {
+	if CurrentVersion != 0x07 {
+		t.Fatalf("CurrentVersion = 0x%02x; update this test with the version bump", CurrentVersion)
+	}
+	encoded := (&CommandMessage{Program: ProgramFFmpeg, Args: []string{"-version"}}).Encode()
+	encoded[0] = 0x06
+	_, err := DecodeCommandMessage(encoded)
+	if err == nil || !strings.Contains(err.Error(), "same ffmpeg-over-ip release") {
+		t.Fatalf("err = %v, want a version mismatch error", err)
+	}
+}
+
 func TestCommandMessageSingleArg(t *testing.T) {
 	msg := &CommandMessage{Program: ProgramFFprobe, Args: []string{"-version"}}
 	decoded, err := DecodeCommandMessage(msg.Encode())
@@ -629,27 +654,27 @@ func TestMessageTypeValues(t *testing.T) {
 	// Verify no collisions and correct values per spec
 	types := map[uint8]string{
 		0x01: "Command", 0x02: "Cancel", 0x03: "ExitCode", 0x04: "Error",
-		0x05: "Ping", 0x06: "Pong",
-		0x10: "Stdin", 0x11: "StdinClose", 0x12: "Stdout", 0x13: "Stderr",
+		0x05: "Ping", 0x06: "Pong", 0x07: "Hello", 0x08: "Challenge",
+		0x10: "Stdin", 0x11: "StdinClose", 0x12: "Stdout", 0x13: "Stderr", 0x14: "StdinAck",
 		0x20: "Open", 0x21: "Read", 0x22: "Write", 0x23: "Seek",
 		0x24: "Close", 0x25: "Fstat", 0x26: "Ftruncate",
-		0x27: "Unlink", 0x28: "Rename", 0x29: "Mkdir",
+		0x27: "Unlink", 0x28: "Rename", 0x29: "Mkdir", 0x2A: "Stat", 0x2B: "ListDir",
 		0x40: "OpenOk", 0x41: "ReadOk", 0x42: "WriteOk", 0x43: "SeekOk",
 		0x44: "CloseOk", 0x45: "FstatOk", 0x46: "FtruncateOk",
-		0x47: "UnlinkOk", 0x48: "RenameOk", 0x49: "MkdirOk",
+		0x47: "UnlinkOk", 0x48: "RenameOk", 0x49: "MkdirOk", 0x4A: "StatOk", 0x4B: "ListDirOk",
 		0x4F: "IoError",
 	}
 
 	consts := map[string]uint8{
 		"Command": MsgCommand, "Cancel": MsgCancel, "ExitCode": MsgExitCode, "Error": MsgError,
-		"Ping": MsgPing, "Pong": MsgPong,
-		"Stdin": MsgStdin, "StdinClose": MsgStdinClose, "Stdout": MsgStdout, "Stderr": MsgStderr,
+		"Ping": MsgPing, "Pong": MsgPong, "Hello": MsgHello, "Challenge": MsgChallenge,
+		"Stdin": MsgStdin, "StdinClose": MsgStdinClose, "Stdout": MsgStdout, "Stderr": MsgStderr, "StdinAck": MsgStdinAck,
 		"Open": MsgOpen, "Read": MsgRead, "Write": MsgWrite, "Seek": MsgSeek,
 		"Close": MsgClose, "Fstat": MsgFstat, "Ftruncate": MsgFtruncate,
-		"Unlink": MsgUnlink, "Rename": MsgRename, "Mkdir": MsgMkdir,
+		"Unlink": MsgUnlink, "Rename": MsgRename, "Mkdir": MsgMkdir, "Stat": MsgStat, "ListDir": MsgListDir,
 		"OpenOk": MsgOpenOk, "ReadOk": MsgReadOk, "WriteOk": MsgWriteOk, "SeekOk": MsgSeekOk,
 		"CloseOk": MsgCloseOk, "FstatOk": MsgFstatOk, "FtruncateOk": MsgFtruncateOk,
-		"UnlinkOk": MsgUnlinkOk, "RenameOk": MsgRenameOk, "MkdirOk": MsgMkdirOk,
+		"UnlinkOk": MsgUnlinkOk, "RenameOk": MsgRenameOk, "MkdirOk": MsgMkdirOk, "StatOk": MsgStatOk, "ListDirOk": MsgListDirOk,
 		"IoError": MsgIoError,
 	}
 
@@ -675,8 +700,11 @@ func TestIsFileIORequest(t *testing.T) {
 	}{
 		{"below range 0x1F", 0x1F, false},
 		{"lower bound MsgOpen", 0x20, true},
-		{"upper bound MsgMkdir", 0x29, true},
-		{"above range 0x2A", 0x2A, false},
+		{"MsgMkdir", 0x29, true},
+		{"MsgStat", MsgStat, true},
+		{"MsgListDir", MsgListDir, true},
+		{"upper bound 0x2F", 0x2F, true},
+		{"above range 0x30", 0x30, false},
 		{"zero", 0x00, false},
 		{"max uint8", 0xFF, false},
 		{"MsgOpen", MsgOpen, true},
@@ -1063,5 +1091,98 @@ func TestWriteMessageToEmptyVsNil(t *testing.T) {
 	if !bytes.Equal(bufNil.Bytes(), bufEmpty.Bytes()) {
 		t.Fatalf("nil and empty payloads produced different wire output:\n  nil:   %v\n  empty: %v",
 			bufNil.Bytes(), bufEmpty.Bytes())
+	}
+}
+
+// --- Path operations ---
+
+func TestPathRequestRoundTrip(t *testing.T) {
+	req := &PathRequest{RequestID: 0xBEEF, Path: "/fonts/dir/ünïcode.ttf"}
+	encoded := req.Encode()
+	if !bytes.Equal(encoded[:2], []byte{0xBE, 0xEF}) || string(encoded[2:]) != req.Path {
+		t.Fatalf("layout: %v", encoded)
+	}
+	decoded, err := DecodePathRequest(encoded)
+	if err != nil || *decoded != *req {
+		t.Fatalf("round trip: %+v, %v", decoded, err)
+	}
+	if _, err := DecodePathRequest([]byte{1}); err == nil {
+		t.Fatal("expected error for short payload")
+	}
+}
+
+func TestStatOkResponseLayout(t *testing.T) {
+	resp := &StatOkResponse{RequestID: 7, Size: 0x0102030405060708, Mode: 0o100644, Mtime: -2, Access: FioAccessR | FioAccessW}
+	encoded := resp.Encode()
+	want := []byte{
+		0x00, 0x07,
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x00, 0x00, 0x81, 0xA4,
+		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE,
+		0x03,
+	}
+	if !bytes.Equal(encoded, want) {
+		t.Fatalf("layout:\n  got  %v\n  want %v", encoded, want)
+	}
+	decoded, err := DecodeStatOkResponse(encoded)
+	if err != nil || *decoded != *resp {
+		t.Fatalf("round trip: %+v, %v", decoded, err)
+	}
+	if _, err := DecodeStatOkResponse(encoded[:22]); err == nil {
+		t.Fatal("expected error for short payload")
+	}
+}
+
+func TestListDirOkResponseRoundTrip(t *testing.T) {
+	resp := &ListDirOkResponse{RequestID: 3, Entries: []DirEntry{
+		{Name: "a.ttf", Mode: 0o100644, Size: 100, Mtime: 1700000000},
+		{Name: "sub", Mode: 0o040755, Size: 0, Mtime: 1},
+		{Name: "", Mode: 0, Size: 0, Mtime: 0},
+	}}
+	encoded := resp.Encode()
+	if !bytes.Equal(encoded[:6], []byte{0, 3, 0, 0, 0, 3}) {
+		t.Fatalf("header: %v", encoded[:6])
+	}
+	// first entry: name_len, name, mode, size, mtime
+	wantFirst := []byte{0, 5, 'a', '.', 't', 't', 'f', 0, 0, 0x81, 0xA4, 0, 0, 0, 0, 0, 0, 0, 100}
+	if !bytes.Equal(encoded[6:6+len(wantFirst)], wantFirst) {
+		t.Fatalf("first entry: %v", encoded[6:6+len(wantFirst)])
+	}
+	decoded, err := DecodeListDirOkResponse(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RequestID != 3 || len(decoded.Entries) != 3 {
+		t.Fatalf("decoded: %+v", decoded)
+	}
+	for i := range resp.Entries {
+		if decoded.Entries[i] != resp.Entries[i] {
+			t.Errorf("entry %d: got %+v, want %+v", i, decoded.Entries[i], resp.Entries[i])
+		}
+	}
+	if _, err := DecodeListDirOkResponse(encoded[:len(encoded)-1]); err == nil {
+		t.Fatal("expected error for truncated entry")
+	}
+}
+
+func TestModeToWire(t *testing.T) {
+	tests := []struct {
+		in   fs.FileMode
+		want uint32
+	}{
+		{0o644, 0o100644},
+		{fs.ModeDir | 0o755, 0o040755},
+		{fs.ModeSymlink | 0o777, 0o120777},
+		{fs.ModeNamedPipe | 0o600, 0o010600},
+		{fs.ModeSocket | 0o700, 0o140700},
+		{fs.ModeDevice | fs.ModeCharDevice | 0o666, 0o020666},
+		{fs.ModeDevice | 0o660, 0o060660},
+		{fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky | 0o755, 0o107755},
+		{fs.ModeIrregular | 0o644, 0o000644},
+	}
+	for _, tc := range tests {
+		if got := ModeToWire(tc.in); got != tc.want {
+			t.Errorf("ModeToWire(%v) = %#o, want %#o", tc.in, got, tc.want)
+		}
 	}
 }

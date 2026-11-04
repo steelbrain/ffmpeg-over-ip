@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -249,5 +250,50 @@ func TestLastSendTimeMonotonicallyIncreasing(t *testing.T) {
 			t.Errorf("iteration %d: LastSendTime went backwards: prev=%v, current=%v", i, prev, current)
 		}
 		prev = current
+	}
+}
+
+// A write blocked on a peer that stopped reading shows up in StuckFor, so
+// the client's keepalive can give up on it.
+func TestWriterStuckFor(t *testing.T) {
+	c, s := net.Pipe() // nobody reads s
+	defer c.Close()
+	defer s.Close()
+	w := NewWriter(c)
+	if d := w.StuckFor(time.Now()); d != 0 {
+		t.Fatalf("idle writer reports %v stuck", d)
+	}
+	go w.WriteMessage(protocol.MsgStdout, []byte("x"))
+	deadline := time.Now().Add(2 * time.Second)
+	for w.StuckFor(time.Now().Add(time.Minute)) < time.Minute {
+		if time.Now().After(deadline) {
+			t.Fatal("blocked write not reported")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	go protocol.ReadMessageFrom(s) // unblock it
+	deadline = time.Now().Add(2 * time.Second)
+	for w.StuckFor(time.Now()) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("finished write still reported as stuck")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// Keepalive times compare on the monotonic clock (time.Time carries an
+// "m=" reading), so a wall clock step can't fake or hide a timeout.
+func TestKeepaliveTimesUseMonotonicClock(t *testing.T) {
+	if MonoNow() == 0 {
+		t.Fatal("MonoNow returned the unset value")
+	}
+	w := NewWriter(io.Discard)
+	if !strings.Contains(w.LastSendTime().String(), " m=") {
+		t.Fatalf("LastSendTime has no monotonic reading: %v", w.LastSendTime())
+	}
+	before := time.Now()
+	got := MonoTime(MonoNow())
+	if !strings.Contains(got.String(), " m=") || got.Before(before) || time.Since(got) > time.Second {
+		t.Fatalf("MonoTime(MonoNow()) = %v, want about %v with a monotonic reading", got, before)
 	}
 }

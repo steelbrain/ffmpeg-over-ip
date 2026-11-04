@@ -3,8 +3,10 @@ package session
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -945,6 +947,7 @@ import socket, struct, os, sys
 port = int(os.environ['FFOIP_PORT'])
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect(('127.0.0.1', port))
+s.sendall(b'FIO1' + os.environ['FFOIP_TOKEN'].encode())  # loopback hello (process.LoopbackHello)
 
 # Send MsgOpen (0x20) request: reqID=1, fileID=1, flags=0, mode=0, path="/test"
 path = b'/test'
@@ -1032,5 +1035,31 @@ s.close()
 
 	if exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, string(stderr))
+	}
+}
+
+// The child's stdout and stderr pipes are closed when the session is done,
+// not left open until the GC finalizes them.
+func TestSessionClosesOutputPipes(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+
+	proc := process.NewProcess("echo", []string{"hi"})
+	if err := proc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		NewSession(serverConn, proc).Run(context.Background())
+		serverConn.Close()
+		close(done)
+	}()
+	readMessages(clientConn)
+	<-done
+
+	for name, r := range map[string]io.Reader{"stdout": proc.Stdout(), "stderr": proc.Stderr()} {
+		if _, err := r.Read(make([]byte, 1)); !errors.Is(err, os.ErrClosed) {
+			t.Errorf("%s pipe: read after session = %v, want os.ErrClosed", name, err)
+		}
 	}
 }

@@ -1,15 +1,15 @@
 diff --git a/libavformat/hlsenc.c b/libavformat/hlsenc.c
-index 68893ce..5563ec3 100644
+index 68893ce..56f2c5d 100644
 --- a/libavformat/hlsenc.c
 +++ b/libavformat/hlsenc.c
-@@ -26,6 +26,7 @@
- #include <time.h>
- #if HAVE_UNISTD_H
- #include <unistd.h>
+@@ -55,6 +55,7 @@
+ #include "mux.h"
+ #include "os_support.h"
+ #include "url.h"
 +#include "fio.h"
- #endif
  
- #include "libavutil/attributes_internal.h"
+ typedef enum {
+     HLS_START_SEQUENCE_AS_START_NUMBER = 0,
 @@ -521,7 +522,7 @@ static int hls_delete_file(HLSContext *hls, AVFormatContext *avf,
  
          //Nothing to write

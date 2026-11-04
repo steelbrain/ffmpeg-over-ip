@@ -241,7 +241,7 @@ The patched `ffmpeg` on the server tunnels its file reads back to the client. To
 | Variable | Default | Description |
 |---|---|---|
 | `FFOIP_READAHEAD_BYTES` | `2097152` (2 MiB) | Maximum read-ahead window per open file. The window starts small and grows toward this value on sustained sequential reads. Values above 16 MiB are clamped. Set to `0` to disable read-ahead and prefetch entirely (one network read per ffmpeg read). |
-| `FFOIP_RANGE_CACHE_BYTES` | `268435456` (256 MiB) | Maximum bytes of previously-read ranges cached per open file, so backward seeks and re-reads are served without a round trip. Only applies to read-only files of 256 MiB or smaller. Set to `0` to disable the range cache. |
+| `FFOIP_RANGE_CACHE_BYTES` | `268435456` (256 MiB) | Maximum bytes of previously-read ranges cached, across all files the `ffmpeg` process has open, so backward seeks and re-reads are served without a round trip. Only applies to read-only files of 256 MiB or smaller. Set to `0` to disable the range cache. |
 
 Notes:
 

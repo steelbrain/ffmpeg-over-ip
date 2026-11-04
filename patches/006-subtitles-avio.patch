@@ -1,0 +1,191 @@
+diff --git a/libavfilter/vf_subtitles.c b/libavfilter/vf_subtitles.c
+index dde4535..84d393b 100644
+--- a/libavfilter/vf_subtitles.c
++++ b/libavfilter/vf_subtitles.c
+@@ -34,6 +34,8 @@
+ # include "libavcodec/avcodec.h"
+ # include "libavcodec/codec_desc.h"
+ # include "libavformat/avformat.h"
++# include "libavutil/bprint.h"
++# include "config.h" /* HAVE_DOS_PATHS */
+ #endif
+ #include "libavutil/avstring.h"
+ #include "libavutil/mem.h"
+@@ -132,6 +134,131 @@ static void ass_log(int ass_level, const char *fmt, va_list args, void *ctx)
+     av_log(ctx, level, "\n");
+ }
+ 
++#if CONFIG_SUBTITLES_FILTER
++/* libass opens files itself with fopen() and opendir(), which only see the
++ * local filesystem. Reading subtitle and font files through avio instead
++ * lets the file protocol serve them wherever it gets files from. Like
++ * libass, this sets no size limit of its own, beyond what the APIs take:
++ * ass_add_font() takes an int size, and AVBPrint stops below 4 GiB. */
++#define ASS_MAX_FONT_SIZE INT_MAX
++#define ASS_MAX_FILE_SIZE SIZE_MAX
++
++/* libass takes plain local paths, but avio takes URLs, in which a relative
++ * path can mean something else: "Ep1:Pilot.ass" names a protocol "Ep1",
++ * "subfile,a:b.ass" the subfile protocol, and "file,x.ass" options for the
++ * file protocol (url_find_protocol(), url_alloc_for_protocol()). Read every
++ * relative path as "./path", which is always a plain file; absolute paths,
++ * and DOS paths as is_dos_path() sees them, already are. */
++static char *path_to_url(const char *path)
++{
++#if HAVE_DOS_PATHS
++    if (path[0] == '\\' || (path[0] && path[1] == ':'))
++        return av_strdup(path);
++#endif
++    if (!path[0] || path[0] == '/')
++        return av_strdup(path);
++    return av_asprintf("./%s", path);
++}
++
++static int read_file_avio(const char *path, size_t max_size,
++                          char **data, size_t *size)
++{
++    AVIOContext *pb = NULL;
++    AVBPrint bp;
++    char *url = path_to_url(path);
++    int ret;
++
++    if (!url)
++        return AVERROR(ENOMEM);
++    ret = avio_open(&pb, url, AVIO_FLAG_READ);
++    av_free(url);
++    if (ret < 0)
++        return ret;
++
++    av_bprint_init(&bp, 0, AV_BPRINT_SIZE_UNLIMITED);
++    ret = avio_read_to_bprint(pb, &bp, max_size < SIZE_MAX ? max_size + 1 : SIZE_MAX);
++    avio_closep(&pb);
++    if (ret >= 0 && !av_bprint_is_complete(&bp))
++        ret = AVERROR(ENOMEM);
++    if (ret >= 0 && bp.len > max_size)
++        ret = AVERROR(EFBIG);
++    if (ret < 0) {
++        av_bprint_finalize(&bp, NULL);
++        return ret;
++    }
++    *size = bp.len;
++    return av_bprint_finalize(&bp, data);
++}
++
++/* Load every file in dir as a font, as libass does for its fonts directory:
++ * no recursion, names starting with '.' skipped. Named pipes, devices and
++ * sockets are skipped too: reading one would block (libass hangs on them). */
++static int load_fonts_dir(AVFilterContext *ctx, ASS_Library *library,
++                          const char *dir)
++{
++    AVIODirContext *dc = NULL;
++    AVIODirEntry *entry = NULL;
++    char *url = path_to_url(dir);
++    int ret;
++
++    if (!url)
++        return AVERROR(ENOMEM);
++    ret = avio_open_dir(&dc, url, NULL);
++    av_free(url);
++    if (ret < 0)
++        return ret;
++
++    while ((ret = avio_read_dir(dc, &entry)) >= 0 && entry) {
++        if (entry->name && entry->name[0] != '.' &&
++            entry->type != AVIO_ENTRY_DIRECTORY &&
++            entry->type != AVIO_ENTRY_NAMED_PIPE &&
++            entry->type != AVIO_ENTRY_CHARACTER_DEVICE &&
++            entry->type != AVIO_ENTRY_BLOCK_DEVICE &&
++            entry->type != AVIO_ENTRY_SOCKET) {
++            char *path = av_append_path_component(dir, entry->name);
++            char *data = NULL;
++            size_t size = 0;
++            int err = path ? read_file_avio(path, ASS_MAX_FONT_SIZE, &data, &size)
++                           : AVERROR(ENOMEM);
++            if (err < 0) {
++                av_log(ctx, AV_LOG_WARNING, "Could not load font file '%s': %s\n",
++                       path ? path : entry->name, av_err2str(err));
++            } else {
++                av_log(ctx, AV_LOG_INFO, "Loading font file '%s'\n", path);
++                ass_add_font(library, entry->name, data, (int)size);
++            }
++            av_free(data);
++            av_free(path);
++        }
++        avio_free_directory_entry(&entry);
++    }
++    avio_close_dir(&dc);
++    return ret < 0 ? ret : 0;
++}
++
++/* libass reads its fonts directory inside ass_set_fonts(), after the fonts
++ * already given to ass_add_font() (such as Matroska attachments), and when
++ * two fonts match equally it uses the one added first. Call this right
++ * before ass_set_fonts() so the order stays the same. */
++static void add_fonts_dir(AVFilterContext *ctx)
++{
++    AssContext *ass = ctx->priv;
++    int ret;
++
++    if (!ass->fontsdir || !*ass->fontsdir)
++        return;
++    ret = load_fonts_dir(ctx, ass->library, ass->fontsdir);
++    if (ret == AVERROR(ENOSYS))
++        /* no directory listing for this path: let libass scan it */
++        ass_set_fonts_dir(ass->library, ass->fontsdir);
++    else if (ret < 0)
++        /* libass ignores a fonts directory it can't open */
++        av_log(ctx, ret == AVERROR(ENOENT) ? AV_LOG_VERBOSE : AV_LOG_WARNING,
++               "Could not read fonts directory '%s': %s\n",
++               ass->fontsdir, av_err2str(ret));
++}
++#endif
++
+ static av_cold int init(AVFilterContext *ctx)
+ {
+     AssContext *ass = ctx->priv;
+@@ -148,7 +275,10 @@ static av_cold int init(AVFilterContext *ctx)
+     }
+     ass_set_message_cb(ass->library, ass_log, ctx);
+ 
++#if !CONFIG_SUBTITLES_FILTER
++    /* with the subtitles filter built, add_fonts_dir() loads it instead */
+     ass_set_fonts_dir(ass->library, ass->fontsdir);
++#endif
+     ass_set_extract_fonts(ass->library, 1);
+ 
+     ass->renderer = ass_renderer_init(ass->library);
+@@ -280,9 +410,26 @@ static av_cold int init_ass(AVFilterContext *ctx)
+         return ret;
+ 
+     /* Initialize fonts */
++#if CONFIG_SUBTITLES_FILTER
++    add_fonts_dir(ctx);
++#endif
+     ass_set_fonts(ass->renderer, NULL, NULL, 1, NULL, 1);
+ 
++#if CONFIG_SUBTITLES_FILTER
++    {
++        char *data = NULL;
++        size_t size = 0;
++        ret = read_file_avio(ass->filename, ASS_MAX_FILE_SIZE, &data, &size);
++        if (ret < 0)
++            av_log(ctx, AV_LOG_ERROR, "Could not read '%s': %s\n",
++                   ass->filename, av_err2str(ret));
++        else
++            ass->track = ass_read_memory(ass->library, data, size, NULL);
++        av_free(data);
++    }
++#else
+     ass->track = ass_read_file(ass->library, ass->filename, NULL);
++#endif
+     if (!ass->track) {
+         av_log(ctx, AV_LOG_ERROR,
+                "Could not create a libass track when reading file '%s'\n",
+@@ -433,6 +580,7 @@ static av_cold int init_subtitles(AVFilterContext *ctx)
+     }
+ 
+     /* Initialize fonts */
++    add_fonts_dir(ctx);
+     ass_set_fonts(ass->renderer, NULL, NULL, 1, NULL, 1);
+ 
+     /* Open decoder */

@@ -256,6 +256,39 @@ func TestReadEOF(t *testing.T) {
 	}
 }
 
+// A READ for more than maxReadBytes gets a short reply instead of a reply
+// over the message limit (or a 4 GiB allocation).
+func TestReadCapsRequestSize(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "big.bin")
+	if err := os.WriteFile(path, make([]byte, maxReadBytes+4096), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := NewHandler()
+	defer h.CloseAll()
+
+	dispatch(t, h, protocol.MsgOpen, (&protocol.OpenRequest{
+		RequestID: 1, FileID: 1, Flags: protocol.FioORDONLY, Path: path,
+	}).Encode())
+	rt, rp := dispatch(t, h, protocol.MsgRead, (&protocol.ReadRequest{
+		RequestID: 2, FileID: 1, NBytes: 0xFFFFFFFF,
+	}).Encode())
+	if rt != protocol.MsgReadOk {
+		t.Fatalf("expected MsgReadOk, got 0x%02x", rt)
+	}
+	if n := len(decodeReadOk(t, rp).Data); n != maxReadBytes {
+		t.Fatalf("read %d bytes, want %d", n, maxReadBytes)
+	}
+	// The rest of the file follows on the next read.
+	_, rp = dispatch(t, h, protocol.MsgRead, (&protocol.ReadRequest{
+		RequestID: 3, FileID: 1, NBytes: 0xFFFFFFFF,
+	}).Encode())
+	if n := len(decodeReadOk(t, rp).Data); n != 4096 {
+		t.Fatalf("second read %d bytes, want 4096", n)
+	}
+}
+
 func TestSeekSetCurEnd(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "seek.txt")
@@ -338,6 +371,11 @@ func TestFstat(t *testing.T) {
 	wantMode := uint32(info.Mode().Perm())
 	if fr.Mode&0o777 != wantMode {
 		t.Fatalf("expected mode 0%o (from os.Stat), got 0%o", wantMode, fr.Mode&0o777)
+	}
+	// fio reads the mode as POSIX st_mode bits, so a regular file must carry
+	// S_IFREG rather than Go's os.FileMode type bits.
+	if fr.Mode&protocol.FioSIFMT != protocol.FioSIFREG {
+		t.Fatalf("expected S_IFREG type bits, got mode 0%o", fr.Mode)
 	}
 }
 
@@ -1873,17 +1911,26 @@ func TestUnlinkNonEmptyDirectory(t *testing.T) {
 	}
 }
 
-func TestMapErrnoEBUSY(t *testing.T) {
-	got := mapErrno(syscall.EBUSY)
-	if got != protocol.FioEIO {
-		t.Fatalf("expected FioEIO (%d) for EBUSY (unmapped), got %d", protocol.FioEIO, got)
-	}
-}
-
-func TestMapErrnoEPIPE(t *testing.T) {
-	got := mapErrno(syscall.EPIPE)
-	if got != protocol.FioEIO {
-		t.Fatalf("expected FioEIO (%d) for EPIPE (unmapped), got %d", protocol.FioEIO, got)
+func TestMapErrnoAddedValues(t *testing.T) {
+	for _, tc := range []struct {
+		err  syscall.Errno
+		want int32
+	}{
+		{syscall.EBUSY, protocol.FioEBUSY},
+		{syscall.EXDEV, protocol.FioEXDEV},
+		{syscall.ENAMETOOLONG, protocol.FioENAMETOOLONG},
+		{syscall.ENOTEMPTY, protocol.FioENOTEMPTY},
+		{syscall.ELOOP, protocol.FioELOOP},
+		{syscall.EBADF, protocol.FioEBADF},
+		{syscall.EFBIG, protocol.FioEFBIG},
+		{syscall.ESPIPE, protocol.FioESPIPE},
+		{syscall.EPIPE, protocol.FioEPIPE},
+		{syscall.EOVERFLOW, protocol.FioEOVERFLOW},
+		{syscall.EDQUOT, protocol.FioEDQUOT},
+	} {
+		if got := mapErrno(&os.PathError{Op: "x", Path: "y", Err: tc.err}); got != tc.want {
+			t.Errorf("mapErrno(%v) = %d, want %d", tc.err, got, tc.want)
+		}
 	}
 }
 

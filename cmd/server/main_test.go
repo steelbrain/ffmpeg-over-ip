@@ -15,6 +15,7 @@ import (
 
 	"github.com/steelbrain/ffmpeg-over-ip/internal/auth"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/config"
+	"github.com/steelbrain/ffmpeg-over-ip/internal/handshake"
 	"github.com/steelbrain/ffmpeg-over-ip/internal/protocol"
 )
 
@@ -107,7 +108,8 @@ func TestSendErrorEmptyMessage(t *testing.T) {
 	}
 }
 
-// readAllMessages reads protocol messages from r until EOF or error.
+// readAllMessages reads protocol messages from r until EOF or error,
+// leaving out the handshake's MsgAccepted.
 func readAllMessages(r io.Reader) []*protocol.Message {
 	var msgs []*protocol.Message
 	for {
@@ -115,22 +117,56 @@ func readAllMessages(r io.Reader) []*protocol.Message {
 		if err != nil {
 			break
 		}
+		if msg.Type == protocol.MsgAccepted {
+			continue
+		}
 		msgs = append(msgs, msg)
 	}
 	return msgs
 }
 
-// makeCommandPayload creates a properly encoded CommandMessage payload.
-func makeCommandPayload(secret string, program uint8, args []string) []byte {
-	nonce := [protocol.NonceLength]byte{1, 2, 3}
-	sig := auth.Sign(secret, protocol.CurrentVersion, nonce, program, args)
+// startHandshake plays the client side of the handshake by hand, so tests
+// can sign commands with any secret: it sends a hello and returns both
+// nonces from the server's challenge.
+func startHandshake(t *testing.T, conn net.Conn) (clientNonce, serverNonce [protocol.NonceLength]byte) {
+	t.Helper()
+	clientNonce = [protocol.NonceLength]byte{1, 2, 3}
+	hello := &protocol.HelloMessage{Nonce: clientNonce}
+	if err := protocol.WriteMessageTo(conn, protocol.MsgHello, hello.Encode()); err != nil {
+		t.Fatalf("failed to write hello: %v", err)
+	}
+	msg, err := protocol.ReadMessageFrom(conn)
+	if err != nil {
+		t.Fatalf("failed to read challenge: %v", err)
+	}
+	if msg.Type != protocol.MsgChallenge {
+		t.Fatalf("expected MsgChallenge, got 0x%02x (%q)", msg.Type, msg.Payload)
+	}
+	ch, err := protocol.DecodeChallengeMessage(msg.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return clientNonce, ch.Nonce
+}
+
+// makeCommandPayload creates a CommandMessage payload for one connection.
+func makeCommandPayload(secret string, clientNonce, serverNonce [protocol.NonceLength]byte, program uint8, args []string) []byte {
 	cmd := &protocol.CommandMessage{
-		Nonce:     nonce,
-		Signature: sig,
+		Nonce:     serverNonce,
+		Signature: auth.Sign(secret, protocol.CurrentVersion, clientNonce, serverNonce, program, args),
 		Program:   program,
 		Args:      args,
 	}
 	return cmd.Encode()
+}
+
+// sendCommand runs the handshake and sends a command signed with secret.
+func sendCommand(t *testing.T, conn net.Conn, secret string, program uint8, args []string) {
+	t.Helper()
+	cn, sn := startHandshake(t, conn)
+	if err := protocol.WriteMessageTo(conn, protocol.MsgCommand, makeCommandPayload(secret, cn, sn, program, args)); err != nil {
+		t.Fatalf("failed to write command: %v", err)
+	}
 }
 
 func TestHandleConnectionBadFirstMessage(t *testing.T) {
@@ -142,7 +178,7 @@ func TestHandleConnectionBadFirstMessage(t *testing.T) {
 
 	go handleConnection(ctx, serverConn, cfg, "/bin/echo", "/bin/echo")
 
-	// Send a MsgPing instead of MsgCommand
+	// Send a MsgPing instead of MsgHello
 	if err := protocol.WriteMessageTo(clientConn, protocol.MsgPing, nil); err != nil {
 		t.Fatalf("failed to write ping: %v", err)
 	}
@@ -156,8 +192,8 @@ func TestHandleConnectionBadFirstMessage(t *testing.T) {
 	if msg.Type != protocol.MsgError {
 		t.Fatalf("expected MsgError (0x%02x), got 0x%02x", protocol.MsgError, msg.Type)
 	}
-	if !strings.Contains(string(msg.Payload), "expected command") {
-		t.Errorf("error message %q does not contain %q", string(msg.Payload), "expected command")
+	if !strings.Contains(string(msg.Payload), "expected hello") {
+		t.Errorf("error message %q does not contain %q", string(msg.Payload), "expected hello")
 	}
 }
 
@@ -199,10 +235,7 @@ func TestHandleConnectionAuthFailure(t *testing.T) {
 	go handleConnection(ctx, serverConn, cfg, "/bin/echo", "/bin/echo")
 
 	// Sign with wrong secret
-	payload := makeCommandPayload("wrong-secret", protocol.ProgramFFmpeg, []string{"-version"})
-	if err := protocol.WriteMessageTo(clientConn, protocol.MsgCommand, payload); err != nil {
-		t.Fatalf("failed to write command: %v", err)
-	}
+	sendCommand(t, clientConn, "wrong-secret", protocol.ProgramFFmpeg, []string{"-version"})
 
 	msgs := readAllMessages(clientConn)
 	if len(msgs) == 0 {
@@ -229,10 +262,7 @@ func TestHandleConnectionUnknownProgram(t *testing.T) {
 	go handleConnection(ctx, serverConn, cfg, "/bin/echo", "/bin/echo")
 
 	// Sign with correct secret but unknown program 0xFF
-	payload := makeCommandPayload(secret, 0xFF, []string{"-version"})
-	if err := protocol.WriteMessageTo(clientConn, protocol.MsgCommand, payload); err != nil {
-		t.Fatalf("failed to write command: %v", err)
-	}
+	sendCommand(t, clientConn, secret, 0xFF, []string{"-version"})
 
 	msgs := readAllMessages(clientConn)
 	if len(msgs) == 0 {
@@ -260,10 +290,7 @@ func TestHandleConnectionSuccess(t *testing.T) {
 	go handleConnection(ctx, serverConn, cfg, echoBin, echoBin)
 
 	// Send a valid command that runs "echo -version" (echo will just print "-version")
-	payload := makeCommandPayload(secret, protocol.ProgramFFmpeg, []string{"-version"})
-	if err := protocol.WriteMessageTo(clientConn, protocol.MsgCommand, payload); err != nil {
-		t.Fatalf("failed to write command: %v", err)
-	}
+	sendCommand(t, clientConn, secret, protocol.ProgramFFmpeg, []string{"-version"})
 
 	// Read all messages with a timeout
 	type result struct {
@@ -328,10 +355,7 @@ func TestHandleConnectionProcessNotFound(t *testing.T) {
 	// Use a nonexistent binary path
 	go handleConnection(ctx, serverConn, cfg, "/nonexistent/binary/ffmpeg", "/nonexistent/binary/ffprobe")
 
-	payload := makeCommandPayload(secret, protocol.ProgramFFmpeg, []string{"-version"})
-	if err := protocol.WriteMessageTo(clientConn, protocol.MsgCommand, payload); err != nil {
-		t.Fatalf("failed to write command: %v", err)
-	}
+	sendCommand(t, clientConn, secret, protocol.ProgramFFmpeg, []string{"-version"})
 
 	// Read all messages with a timeout
 	type result struct {
@@ -357,5 +381,119 @@ func TestHandleConnectionProcessNotFound(t *testing.T) {
 	msg := msgs[0]
 	if msg.Type != protocol.MsgError {
 		t.Fatalf("expected MsgError (0x%02x), got 0x%02x", protocol.MsgError, msg.Type)
+	}
+}
+
+// A command recorded from one connection must not run on another: the
+// signature covers the server's nonce, which is new for every connection.
+func TestHandleConnectionReplayRejected(t *testing.T) {
+	secret := "test-secret"
+	cfg := &config.ServerConfig{AuthSecret: secret}
+	args := []string{"-version"}
+
+	// Connection 1: record a valid command (the server would run it).
+	c1, s1 := net.Pipe()
+	go handleConnection(context.Background(), s1, cfg, "/nonexistent/ffmpeg", "/nonexistent/ffprobe")
+	cn, sn := startHandshake(t, c1)
+	recorded := makeCommandPayload(secret, cn, sn, protocol.ProgramFFmpeg, args)
+	c1.Close()
+
+	// Connection 2: replay it after a fresh hello with the same client nonce.
+	c2, s2 := net.Pipe()
+	defer c2.Close()
+	go handleConnection(context.Background(), s2, cfg, "/nonexistent/ffmpeg", "/nonexistent/ffprobe")
+	startHandshake(t, c2)
+	if err := protocol.WriteMessageTo(c2, protocol.MsgCommand, recorded); err != nil {
+		t.Fatal(err)
+	}
+	msgs := readAllMessages(c2)
+	if len(msgs) == 0 || msgs[0].Type != protocol.MsgError || string(msgs[0].Payload) != "authentication failed" {
+		t.Fatalf("replayed command: got %v, want MsgError \"authentication failed\"", msgs)
+	}
+}
+
+// Before the handshake completes, a peer can't make the server allocate
+// more than protocol.MaxHandshakePayload.
+func TestHandleConnectionOversizedHelloRejected(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	done := make(chan struct{})
+	go func() {
+		handleConnection(context.Background(), serverConn, &config.ServerConfig{AuthSecret: "s"}, "/bin/echo", "/bin/echo")
+		close(done)
+	}()
+	// Header only: type + a 100 MiB length. The server must give up without
+	// waiting for (or allocating) the payload.
+	hdr := []byte{protocol.MsgHello, 0x06, 0x40, 0x00, 0x00}
+	if _, err := clientConn.Write(hdr); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("server kept reading an oversized pre-auth message")
+	}
+}
+
+// A client of an older release sends its command first; it gets the version
+// mismatch it always got.
+func TestHandleConnectionPreviousReleaseClient(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	go handleConnection(context.Background(), serverConn, &config.ServerConfig{AuthSecret: "s"}, "/bin/echo", "/bin/echo")
+	old := (&protocol.CommandMessage{Program: protocol.ProgramFFmpeg, Args: []string{"-version"}}).Encode()
+	old[0] = protocol.CurrentVersion - 1
+	if err := protocol.WriteMessageTo(clientConn, protocol.MsgCommand, old); err != nil {
+		t.Fatal(err)
+	}
+	msgs := readAllMessages(clientConn)
+	if len(msgs) == 0 || msgs[0].Type != protocol.MsgError || !strings.Contains(string(msgs[0].Payload), "protocol version mismatch") {
+		t.Fatalf("got %v, want a protocol version mismatch error", msgs)
+	}
+}
+
+// Connections that never send anything must not keep a real client from
+// completing its handshake.
+func TestIdleConnectionsDontLockOutClients(t *testing.T) {
+	cfg := &config.ServerConfig{AuthSecret: "secret"}
+	var idle []net.Conn
+	for i := 0; i < 300; i++ {
+		c, s := net.Pipe()
+		idle = append(idle, c)
+		go handleConnection(context.Background(), s, cfg, "/nonexistent/ffmpeg", "/nonexistent/ffprobe")
+	}
+	defer func() {
+		for _, c := range idle {
+			c.Close()
+		}
+	}()
+	c, s := net.Pipe()
+	defer c.Close()
+	go handleConnection(context.Background(), s, cfg, "/nonexistent/ffmpeg", "/nonexistent/ffprobe")
+	done := make(chan error, 1)
+	go func() { done <- handshake.Client(c, "secret", protocol.ProgramFFmpeg, []string{"-version"}) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("handshake failed behind idle connections: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("handshake blocked behind idle connections")
+	}
+}
+
+// A command that arrives while the server is shutting down doesn't start
+// ffmpeg (which would only be stopped again, or outlive the server where
+// nothing ties it to the server's lifetime).
+func TestHandleConnectionDuringShutdown(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	go handleConnection(ctx, serverConn, &config.ServerConfig{AuthSecret: "s"}, "/nonexistent/ffmpeg", "/nonexistent/ffprobe")
+	sendCommand(t, clientConn, "s", protocol.ProgramFFmpeg, []string{"-version"})
+	msgs := readAllMessages(clientConn)
+	if len(msgs) == 0 || msgs[0].Type != protocol.MsgError || string(msgs[0].Payload) != "server is shutting down" {
+		t.Fatalf("got %v, want MsgError \"server is shutting down\"", msgs)
 	}
 }
