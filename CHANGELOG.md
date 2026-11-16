@@ -8,6 +8,17 @@ the `v1`–`v4` history.
 
 ## Unreleased
 
+## 7.0.0 - 2026-11-15
+
+v7 changes the wire protocol to version 0x07, so the client and server must be
+upgraded together: a v7 client can't use a v6 server, and a v6 client can't
+use a v7 server. The install scripts download the latest release, so running
+one on either machine installs v7 there; upgrade the other machine too.
+Configuration and the install layout are unchanged. The bundled ffmpeg is still
+jellyfin-ffmpeg 8.1.3-2 on every platform, rebuilt with the fio changes below;
+its codecs, formats, filters and hardware acceleration are the same as in
+6.0.0.
+
 ### Changed
 
 - **Breaking: wire protocol version 0x07.** The new handshake, stdin flow
@@ -182,6 +193,13 @@ the `v1`–`v4` history.
   reported. Storage that returns short reads mid-file, such as some network or
   FUSE mounts, could make ffmpeg see a truncated file. Only an empty reply now
   marks end of file.
+
+### CI / Testing
+
+- `TestErrnoMapping` no longer expects `syscall.ENOTDIR` to map to `ENOTDIR`
+  on Windows, where Go defines it as `ERROR_PATH_NOT_FOUND` (a missing parent
+  directory, mapped to `ENOENT`). It failed in the Windows Go test job; Windows
+  now checks `ERROR_DIRECTORY` → `ENOTDIR` instead.
 
 ## 6.0.0 - 2026-10-19
 
