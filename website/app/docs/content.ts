@@ -153,7 +153,7 @@ If no explicit path or env var config is used, the first file found wins:
 
 The server also accepts \`--config <path>\`.
 
-On Windows, \`~\` is your user directory (e.g., \`C:\\Users\\<you>\`). Paths 7 and 8 don't apply — use the binary directory, current directory, or an environment variable instead.
+On Windows, \`~\` is your user directory (e.g., \`C:\\Users\\<you>\`). The \`/etc/...\` and \`/usr/local/etc/...\` paths are still searched but won't exist on a stock install — use the binary directory, current directory, or an environment variable instead.
 
 To see which paths are searched on your system, run:
 
@@ -166,7 +166,9 @@ ffmpeg-over-ip-client --debug-print-search-paths
 
 \`\`\`jsonc
 {
+  // Required: listen address (host:port or unix:/path/to/socket)
   "address": "0.0.0.0:5050",
+  // Required: HMAC auth secret — must match client
   "authSecret": "your-secret-here",
   // Optional: see "Log" section below (default: no logging)
   "log": "stdout",
@@ -185,18 +187,20 @@ The server looks for \`ffmpeg\` and \`ffprobe\` in the same directory as its own
 
 \`\`\`jsonc
 {
+  // Required: server address (host:port or unix:/path/to/socket)
   "address": "192.168.1.100:5050",
+  // Required: HMAC auth secret — must match server
   "authSecret": "your-secret-here",
   // Optional: see "Log" section below
   "log": "/tmp/ffmpeg-over-ip.log",
   // Optional: see "Fallback to local ffmpeg" section below (default: false)
-  "fallbackToLocal": false,
+  "fallbackToLocal": true,
   // Optional: rewrites applied only when running the local fallback
   "fallbackRewrites": [
     ["h264_nvenc", "h264_qsv"],
   ],
   // Optional: log original and rewritten args when fallback runs (default: false)
-  "debug": false,
+  "debug": true,
 }
 \`\`\`
 
@@ -329,7 +333,7 @@ The patched \`ffmpeg\` on the server tunnels its file reads back to the client. 
 | Variable | Default | Description |
 |---|---|---|
 | \`FFOIP_READAHEAD_BYTES\` | \`2097152\` (2 MiB) | Maximum read-ahead window per open file. The window starts small and grows toward this value on sustained sequential reads. Values above 16 MiB are clamped. Set to \`0\` to disable read-ahead and prefetch entirely (one network read per ffmpeg read). |
-| \`FFOIP_RANGE_CACHE_BYTES\` | \`268435456\` (256 MiB) | Maximum bytes of previously-read ranges cached per open file, so backward seeks and re-reads are served without a round trip. Only applies to read-only files of 256 MiB or smaller. Set to \`0\` to disable the range cache. |
+| \`FFOIP_RANGE_CACHE_BYTES\` | \`268435456\` (256 MiB) | Maximum bytes of previously-read ranges cached, across all files the \`ffmpeg\` process has open, so backward seeks and re-reads are served without a round trip. Only applies to read-only files of 256 MiB or smaller. Set to \`0\` to disable the range cache. |
 
 Notes:
 
@@ -463,17 +467,21 @@ Note: rewrites require a config file — they can't be set via env vars. If you 
     slug: "troubleshooting",
     title: "Troubleshooting",
     description:
-      "Fixes for common ffmpeg-over-ip issues — connection refused, auth failures, missing codecs, ffprobe detection, and macOS Gatekeeper quarantine.",
+      "Fixes for common ffmpeg-over-ip errors, including connection, authentication and version mismatch failures, and the ffmpeg options that open files on the server.",
     content: `
 **Connection refused** — Check that the server is running, the address and port match your config, and the port is reachable (firewall, cloud security group, Docker network). Also verify the server is listening on the right host — \`127.0.0.1:5050\` only accepts local connections. Use \`0.0.0.0:5050\` to listen on all interfaces.
 
 > **Tip:** To test whether the port is reachable, run \`telnet <server-ip> <port>\` from the client machine. If telnet can't connect, a firewall or security group is blocking the port — fix that before troubleshooting ffmpeg-over-ip itself.
 
-**Authentication failed** — The \`authSecret\` must match exactly between client and server configs.
+**Authentication failed** — The \`authSecret\` must match exactly between client and server configs. The server rejects a client with a different secret: the client prints \`server error: authentication failed\`, and the server logs \`auth failed from <address>\`. If the client instead prints \`the server accepted the command but did not prove it knows the auth secret\`, something other than your ffmpeg-over-ip server answered at the configured address.
 
-**Codec not found / encoder not available** — The server's ffmpeg may not support the requested codec. Use \`rewrites\` in the server config to map unsupported codecs to available ones (e.g., \`["h264_nvenc", "h264_qsv"]\`). See [Configuration — Rewrites](/docs/configuration#rewrites).
+**Protocol version mismatch** — The server refuses a client from a different ffmpeg-over-ip release with \`protocol version mismatch: client sent 0x.., server expects 0x..\`. A client talking to a server from a release before 0x07 gets \`server error: expected command message (0x01), got 0x07\`. Upgrade the client and server together so both run the same release; see [Upgrading](/docs/upgrading).
 
-**ffprobe not working** — The client detects ffprobe mode from its binary name. The binary or symlink must contain "ffprobe" in the name. See [Configuration — ffprobe](/docs/configuration#ffprobe).
+**Server busy** — \`server error: server busy: too much data from connections that haven't authenticated yet\` means connections that hadn't finished the handshake were holding as much unverified data as the server buffers: 64 MiB in all, or 16 MiB from your client's IP address (its /64 for IPv6). The server logs \`handshake with <address> failed: ... too much data buffered for unauthenticated connections\`. Each such connection is dropped after at most 10 seconds, so retry; if it keeps happening, something on the network is flooding the server's port.
+
+**Codec not found / encoder not available** — The server's ffmpeg may not support the requested codec. Use \`rewrites\` in the server config to map unsupported codecs to available ones (e.g., \`["h264_nvenc", "h264_qsv"]\`). See [Rewrites](/docs/configuration#rewrites).
+
+**ffprobe not working** — The client detects ffprobe mode from its binary name. The binary or symlink must contain "ffprobe" in the name. See [ffprobe](/docs/configuration#ffprobe).
 
 **Server can't find ffmpeg** — \`ffmpeg\` and \`ffprobe\` must be in the same directory as \`ffmpeg-over-ip-server\`.
 
@@ -487,16 +495,232 @@ xattr -dr com.apple.quarantine ffmpeg ffprobe ffmpeg-over-ip-server
 xattr -dr com.apple.quarantine ffmpeg-over-ip-client
 \`\`\`
 
-**Need more detail?** — Enable logging on both sides. Set \`"log": "stdout"\` and \`"debug": true\` on the server to see the commands being executed. Set \`"log": "/tmp/ffmpeg-over-ip.log"\` on the client to capture client-side activity. **If you're using \`fallbackToLocal\`**, also set \`"debug": true\` on the client to log original and rewritten args when local fallback runs.
+**Need more detail?** — Enable logging on both sides. Set \`"log": "stdout"\` and \`"debug": true\` on the server to see the commands being executed. Set \`"log": "/tmp/ffmpeg-over-ip.log"\` on the client to capture client-side activity. If you use \`fallbackToLocal\`, also set \`"debug": true\` on the client to log the original and rewritten arguments when the local fallback runs.
+
+## Files opened on the server
+
+ffmpeg-over-ip tunnels ffmpeg's file access to the client, including inputs and outputs, HLS/DASH segments and playlists, concat lists, subtitle files and \`fontsdir\` fonts, and two-pass logs. A few ffmpeg features open files themselves, outside that layer, so they read or write the server's disk instead:
+
+- the two-pass stats files of libx264, libx265 and libvvenc (their \`stats\` option, which \`-passlogfile\` sets for them)
+- filter option files: \`stats_file\` of \`psnr\`, \`ssim\`, \`xpsnr\`, \`vmafmotion\` and \`loudnorm\`; \`filename\` of \`sendcmd\`/\`asendcmd\` and \`deshake\`; \`psfile\` and \`plot\` of \`curves\`; \`psfile\` of \`selectivecolor\`; \`file\` of \`lut3d\` and \`lut1d\`; \`fontfile\` and \`textfile\` of \`drawtext\`; \`textfile\` of \`flite\` and \`qrencode\`; \`lut\` and \`custom_shader_path\` of \`libplacebo\`; \`model\` of \`arnndn\`; \`dumpfile\` of \`firequalizer\`; \`hint\` of \`fieldhint\`; \`weights\` of \`nnedi\`; \`labels\` of \`dnn_detect\` and \`dnn_classify\`; \`debug_kdtree\` of \`paletteuse\`
+- \`-vstats_file\`, \`-fpre\`, \`-report\` and \`FFREPORT\`, the \`bluray:\` protocol, image2's \`-pattern_type glob\`, and the DVD subtitle decoder's \`ifo_palette\`
+- the HDS and Smooth Streaming muxers create their output directories and delete old fragments on the server (the fragments and manifests themselves go through the tunnel)
+- system fonts libass finds through fontconfig
+
+Use paths that exist on the server for these, or keep them off the command line.
+
 `,
   },
   {
     slug: "upgrading",
-    title: "Upgrading from v4 to v5",
+    title: "Upgrading",
     description:
-      "Migrate ffmpeg-over-ip from v4 to v5 — drop the shared filesystem, remove ffmpegPath, update Unix socket addresses, and replace --config on the client.",
+      "How to upgrade ffmpeg-over-ip with the install scripts or by hand, and what changed for users in each release from v4 to v7.",
     content: `
-## Architecture Change
+This guide covers what changed for users in each release since v4, newest first. To skip releases, read every section between your version and the newest. You don't need to install the releases in between: install the newest one and follow the checklist in each of those sections.
+
+| You run | Read |
+|---|---|
+| 6.0.0 | [v6 to v7](#v6-to-v7) |
+| 5.2.0 or 5.2.1 | [v5 to v6](#v5-to-v6), then [v6 to v7](#v6-to-v7) |
+| 5.0.x or 5.1.0 | [Within v5](#within-v5), [v5 to v6](#v5-to-v6), then [v6 to v7](#v6-to-v7) |
+| v4 | [v4 to v5](#v4-to-v5), then every section above it |
+
+The [CHANGELOG](https://github.com/steelbrain/ffmpeg-over-ip/blob/main/CHANGELOG.md) lists every change in each release.
+
+## Installing a new release
+
+Upgrading replaces binaries. Config files and environment variables keep working: no release since 5.0.0 has removed or renamed a setting, though 5.2.0 changed how \`rewrites\` match (see [Within v5](#within-v5)).
+
+Upgrade the server while it has no transcodes running. Stop it before you replace its files and start it again afterwards; until it restarts, it keeps running the old version.
+
+### With the install scripts
+
+The install scripts always install the latest release, into the current directory. If the binary is already there, they skip the download unless \`FOIP_FORCE\` is set. Run them in the directory of the existing install.
+
+Server, on Linux or macOS:
+
+\`\`\`sh
+curl -fsSL https://ffmpeg-over-ip.com/install-server.sh | FOIP_FORCE=1 sh
+\`\`\`
+
+Client, on Linux or macOS:
+
+\`\`\`sh
+curl -fsSL https://ffmpeg-over-ip.com/install-client.sh | FOIP_FORCE=1 sh
+\`\`\`
+
+Server, on Windows (PowerShell):
+
+\`\`\`powershell
+$env:FOIP_FORCE = '1'
+irm https://ffmpeg-over-ip.com/install-server.ps1 | iex
+\`\`\`
+
+Client, on Windows (PowerShell):
+
+\`\`\`powershell
+$env:FOIP_FORCE = '1'
+irm https://ffmpeg-over-ip.com/install-client.ps1 | iex
+\`\`\`
+
+With \`FOIP_FORCE\` set, the script overwrites the files in the release archive and leaves everything else in the directory alone:
+
+| Archive | Files |
+|---|---|
+| Server | \`ffmpeg-over-ip-server\`, \`ffmpeg\`, \`ffprobe\`, \`LICENSE\`, \`LICENSE.ffmpeg\` |
+| Client | \`ffmpeg-over-ip-client\`, \`LICENSE\`, \`LICENSE.ffmpeg\` |
+
+On Windows the binaries end in \`.exe\`. After extracting, the script handles the config file and \`ffprobe\` like this:
+
+- An existing \`ffmpeg-over-ip.server.jsonc\` or \`ffmpeg-over-ip.client.jsonc\` in the directory is kept. If there is none, because your config is elsewhere or in environment variables, the script asks for an address and secret and writes one. Upgrade by hand if you don't want that file.
+- An existing \`ffprobe\` is kept. On Linux and macOS the client script created it as a symlink to \`ffmpeg-over-ip-client\`, so it runs the new client. On Windows it created \`ffprobe.exe\` as a copy of the client, and that copy stays at the old version: delete \`ffprobe.exe\` before you run the script, and the script makes a new copy.
+
+### By hand
+
+Download the archives for your platform from the [releases page](https://github.com/steelbrain/ffmpeg-over-ip/releases): \`<platform>-ffmpeg-over-ip-server.zip\` for the server and \`<platform>-ffmpeg-over-ip-client.zip\` for the client, where \`<platform>\` is \`linux-amd64\`, \`linux-arm64\`, \`macos-arm64\`, \`macos-amd64\` or \`windows-amd64\`. The release's \`SHA256SUMS\` file has their checksums.
+
+- **Server**: replace \`ffmpeg-over-ip-server\`, \`ffmpeg\` and \`ffprobe\` with the three files from the new archive. All three must come from the same release and stay in the same directory.
+- **Client**: replace \`ffmpeg-over-ip-client\` and every copy of it, such as an \`ffprobe\` or \`ffprobe.exe\` made with \`cp\` or \`copy\`, or a copy installed under the name \`ffmpeg\`. Symlinks to the client need no change.
+- On macOS, downloaded binaries may be quarantined; remove the attribute as shown in [Troubleshooting](/docs/troubleshooting).
+- If containers mount the binaries, as in [Docker Integration](/docs/docker), replace the files on the host and then restart the containers.
+
+### Check the result
+
+On each client machine, run:
+
+\`\`\`bash
+./ffmpeg-over-ip-client -version
+\`\`\`
+
+When the client and server work together, this prints the server's ffmpeg version and build info. Otherwise it prints an error, such as the version mismatch errors in [v6 to v7](#v6-to-v7).
+
+## v6 to v7
+
+7.0.0 changes the wire protocol from version 0x06 to 0x07. Config files, environment variables and the install layout are the same as in v6. The bundled ffmpeg is still jellyfin-ffmpeg 8.1.3-2, rebuilt with v7's changes to the fio layer.
+
+### What breaks
+
+A client and a server from different releases no longer work together, so upgrade the server and every client at the same time. Transcodes fail from the moment you upgrade the first side until you have upgraded the other.
+
+A v5 or v6 client connecting to a v7 server prints:
+
+\`\`\`
+server error: invalid command: protocol version mismatch: client sent 0x06, server expects 0x07; client and server must run the same ffmpeg-over-ip release
+\`\`\`
+
+A v7 client connecting to a v5 or v6 server prints:
+
+\`\`\`
+server error: expected command message (0x01), got 0x07 (the server runs a different ffmpeg-over-ip release; client and server must run the same release)
+\`\`\`
+
+The client exits with code 1 in both cases. \`fallbackToLocal\` doesn't cover this: the client runs the local ffmpeg only when it can't connect to the server at all.
+
+The server's \`ffmpeg\` and \`ffprobe\` must be the v7 builds too. The v7 server gives each ffmpeg it starts a random token, and only accepts ffmpeg's file tunnel after ffmpeg sends the token back. The v6 builds don't send it.
+
+### What else changes
+
+- Each ffmpeg or ffprobe run starts one network round trip later. The client and server now each prove they know the secret before the command runs.
+- \`FFOIP_RANGE_CACHE_BYTES\` now limits the range cache of the whole ffmpeg process. In v6 the limit applied to each open file separately. If you set it, check the value against the new meaning. See [Performance Tuning](/docs/configuration#performance-tuning).
+- Two-pass encoding works. ffmpeg's pass log is written to the client through the tunnel; in v6, \`-pass 1\` failed with \`Cannot write log file\`. The stats files that libx264, libx265 and libvvenc write themselves still go to the server's disk, as listed in [Files opened on the server](/docs/troubleshooting#files-opened-on-the-server).
+- The \`subtitles\` and \`ass\` filters read the subtitle file and the fonts in \`fontsdir\` from the client. In v6 they were opened on the server's disk, so if you copied these files to the server, they now have to exist on the client at the path the command uses. System fonts that libass finds through fontconfig still come from the server.
+- Path checks and directory listings run on the client. \`-n\` now refuses to overwrite an output file that exists on the client; in v6 it checked the server's disk and overwrote the client's file. Image-sequence inputs and image2's \`-ts_from_file\` now work.
+- Killing a client, or closing its connection, stops its ffmpeg on the server at once. Stopping the server with SIGINT or SIGTERM stops every running ffmpeg and waits for them to exit.
+- The server limits how much data connections that haven't finished the handshake can make it buffer. A client turned away by that limit gets \`server busy\`; see [Troubleshooting](/docs/troubleshooting).
+
+### Use a long random secret
+
+Since you are changing both sides anyway, this is a good time to replace a short or guessable secret. Someone who records a session can test guesses of the secret against it offline, so the [Security](/#security) section recommends a long random secret, such as the output of:
+
+\`\`\`bash
+openssl rand -hex 32
+\`\`\`
+
+Put the same value in \`authSecret\`, or in \`FFMPEG_OVER_IP_SERVER_AUTH_SECRET\` and \`FFMPEG_OVER_IP_CLIENT_AUTH_SECRET\`, on the server and on every client. The install scripts don't change an existing config file, so edit it yourself.
+
+### Checklist
+
+1. Stop the server, replace \`ffmpeg-over-ip-server\`, \`ffmpeg\` and \`ffprobe\` with the v7 files, set a new secret if you are changing it, and start the server.
+2. On every client machine, replace \`ffmpeg-over-ip-client\` and every copy of it (on Windows, including \`ffprobe.exe\`), and set the new secret if you changed it.
+3. Run \`ffmpeg-over-ip-client -version\` on every client machine. It should print \`ffmpeg version 8.1.3-Jellyfin\` and the build info, not one of the errors above.
+4. If you set \`FFOIP_RANGE_CACHE_BYTES\`, check that the value suits a limit for the whole ffmpeg process.
+
+## v5 to v6
+
+6.0.0 moves the bundled \`ffmpeg\` and \`ffprobe\` from jellyfin-ffmpeg 7.1.3-3 (FFmpeg 7.1.3) to 8.1.3-2 (FFmpeg 8.1.3) on every platform. Nothing else changed for users: the client and server code is the same as in 5.2.1, and v5 config files work unchanged. Minimum platforms are also unchanged: glibc 2.28 on Linux and macOS 12.0.
+
+Every 5.x release and 6.0.0 use wire protocol version 0x06 with the same messages, so their clients and servers work with each other, and you can upgrade one machine at a time.
+
+### What breaks
+
+- Commands that depend on options, codecs or defaults that FFmpeg 8 changed or removed. This covers the commands your media server sends and the server's \`rewrites\`, which produce part of the final command line.
+- The experimental \`sonic\` and \`sonicls\` encoders are no longer included, because jellyfin-ffmpeg now builds with \`--disable-unstable\`.
+
+v6 also adds hardware acceleration to the bundled ffmpeg; the [CHANGELOG](https://github.com/steelbrain/ffmpeg-over-ip/blob/main/CHANGELOG.md) lists it.
+
+### What to do
+
+v6 only changes the server's ffmpeg, so test what your media server runs against it. Set \`"log": "stdout"\` and \`"debug": true\` in the server config to log each command's arguments before and after rewrites. ffmpeg's errors reach the client's stderr as usual, because the server forwards ffmpeg's output to the client.
+
+### Checklist
+
+1. Replace the server's \`ffmpeg-over-ip-server\`, \`ffmpeg\` and \`ffprobe\` with the v6 files, or with the v7 files if you are continuing to v7.
+2. Remove \`sonic\` and \`sonicls\` from command lines and rewrites.
+3. Run your usual transcodes with server debug logging on, and fix any command FFmpeg 8 rejects. For commands that come from your media server, a server \`rewrites\` rule can change the arguments.
+4. Replace the client. A 5.x client works with a v6 server, so this can wait, but v7 needs both sides upgraded.
+
+## Within v5
+
+Of the 5.x releases, only 5.2.0 needs a config change: it changed how \`rewrites\` match. Every 5.x release uses wire protocol version 0x06, so the client and server can be upgraded separately.
+
+### 5.2.0: rewrites match whole arguments
+
+Up to 5.1.0, each \`["find", "replace"]\` pair replaced \`find\` wherever it appeared inside an argument, as a plain substring. From 5.2.0 on, \`find\` has to equal a whole argument. A \`find\` that contains spaces is split into words that must match consecutive arguments, and \`replace\` is split into separate arguments the same way.
+
+A substring rule like \`["nvenc", "qsv"]\` no longer matches \`h264_nvenc\` or \`hevc_nvenc\`. Write one rule per full argument instead:
+
+\`\`\`jsonc
+// Up to 5.1.0
+"rewrites": [
+  ["nvenc", "qsv"],
+],
+
+// 5.2.0 and later
+"rewrites": [
+  ["h264_nvenc", "h264_qsv"],
+  ["hevc_nvenc", "hevc_qsv"],
+],
+\`\`\`
+
+Also check these cases:
+
+- A rule whose \`find\` is already a whole argument, such as \`["h264_nvenc", "h264_qsv"]\`, still matches that argument, but it no longer changes longer arguments that contain it, such as a filter graph passed to \`-vf\` or \`-filter_complex\`. A rewrite can't change part of an argument.
+- A \`replace\` that contains spaces now becomes several arguments. Up to 5.1.0 it was inserted as one argument with the spaces inside it.
+
+Set \`"debug": true\` in the server config to log each command's arguments before and after rewrites. The client's \`fallbackRewrites\`, added in 5.2.0, follow the same rules. See [Rewrites](/docs/configuration#rewrites).
+
+### Other 5.x changes
+
+None of these need a config change. The last column says which side has to be upgraded to get the change.
+
+| Release | Change | Side |
+|---|---|---|
+| 5.0.1 | ffmpeg's \`pipe:\` and \`fd:\` protocols work | server |
+| 5.1.0 | One-line install scripts, and configuration through \`FFMPEG_OVER_IP_CLIENT_*\` and \`FFMPEG_OVER_IP_SERVER_*\` environment variables | both |
+| 5.2.0 | Optional fallback to the client machine's own ffmpeg when the server is unreachable (\`fallbackToLocal\`) | client |
+| 5.2.1 | Read-ahead, prefetch and a range cache for tunneled reads, on by default and tuned with \`FFOIP_READAHEAD_BYTES\` and \`FFOIP_RANGE_CACHE_BYTES\` (see [Performance Tuning](/docs/configuration#performance-tuning)) | both |
+
+### Checklist
+
+1. If the server config has \`rewrites\`, rewrite each rule in whole-argument form and check the debug log.
+2. Replace the server's \`ffmpeg-over-ip-server\`, \`ffmpeg\` and \`ffprobe\`, and the client binary.
+
+## v4 to v5
+
+If you are on v4, follow this section, then the sections above it, starting with [Within v5](#within-v5).
+
+### Architecture Change
 
 v4 required a **shared filesystem** (Docker mount, NFS, or SMB) between client and server to transfer video data. The client and server coordinated commands over a lightweight protocol, but actual file I/O happened through the shared filesystem.
 
@@ -507,9 +731,9 @@ This means:
 - No more path mapping between client and server filesystems
 - Works across networks where shared storage isn't practical
 
-## Breaking Config Changes
+### Breaking Config Changes
 
-### \`ffmpegPath\` removed
+#### \`ffmpegPath\` removed
 
 v4 required you to specify the path to ffmpeg on the server:
 
@@ -520,7 +744,7 @@ v4 required you to specify the path to ffmpeg on the server:
 
 v5 ships patched \`ffmpeg\` and \`ffprobe\` binaries in the release. The server finds them automatically in the same directory as its own binary. Place all three files together and remove \`ffmpegPath\` from your config.
 
-### Unix socket address format changed
+#### Unix socket address format changed
 
 v4 used bare paths for Unix sockets:
 
@@ -538,7 +762,7 @@ v5 uses the \`unix:\` prefix (following the gRPC/Docker convention):
 
 TCP addresses (\`host:port\`) are unchanged.
 
-### \`--config\` removed from client
+#### \`--config\` removed from client
 
 v4 supported \`--config\` on both client and server. v5 only supports it on the server, since the client forwards all arguments to ffmpeg. Use environment variables or config file search paths instead:
 
@@ -546,7 +770,7 @@ v4 supported \`--config\` on both client and server. v5 only supports it on the 
 FFMPEG_OVER_IP_CLIENT_CONFIG="/path/to/config.jsonc" ffmpeg-over-ip-client ...
 \`\`\`
 
-Alternatively, pass configuration directly via individual environment variables — no config file required:
+Since 5.1.0 you can also set the address and secret in environment variables, with no config file:
 
 \`\`\`bash
 FFMPEG_OVER_IP_CLIENT_ADDRESS=192.168.1.100:5050 \\
@@ -554,25 +778,25 @@ FFMPEG_OVER_IP_CLIENT_AUTH_SECRET=your-secret \\
 ffmpeg-over-ip-client ...
 \`\`\`
 
-See [Configuration — Environment Variables](/docs/configuration#environment-variables) for the full list.
+See [Environment Variables](/docs/configuration#environment-variables) for the full list.
 
-## New Features in v5
+### New Features in v5
 
-### No shared filesystem required
+#### No shared filesystem required
 
-The biggest change. See the [home page](/) for the architecture overview.
+The biggest change. See [How It Works](/#how).
 
-### Pre-built ffmpeg binaries
+#### Pre-built ffmpeg binaries
 
 Releases include patched \`ffmpeg\` and \`ffprobe\` with hardware acceleration support (NVENC, QSV, VAAPI, AMF, VideoToolbox, and more) built on [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg). No need to install ffmpeg separately on the server.
 
-### Block comments
+#### Block comments
 
 Config files now support \`/* */\` block comments in addition to \`//\` line comments.
 
-## Migration Checklist
+### Checklist
 
-1. Download the v5 release (includes \`ffmpeg-over-ip-server\`, \`ffmpeg\`, and \`ffprobe\`)
+1. Download the latest release (the server archive includes \`ffmpeg-over-ip-server\`, \`ffmpeg\`, and \`ffprobe\`)
 2. Place all three server binaries in the same directory
 3. Remove \`ffmpegPath\` from your server config
 4. If using Unix sockets, add the \`unix:\` prefix to your address

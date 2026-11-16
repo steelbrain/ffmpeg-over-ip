@@ -60,11 +60,11 @@ curl -fsSL https://ffmpeg-over-ip.com/install-client.sh | sh
 irm https://ffmpeg-over-ip.com/install-client.ps1 | iex
 ```
 
-Re-runs are idempotent — already-installed binaries and existing configs are left alone. For manual install or detailed setup, see [docs/quick-start.md](docs/quick-start.md).
+Re-runs are idempotent — already-installed binaries and existing configs are left alone. To upgrade, run the script again with `FOIP_FORCE=1` set (see [Upgrading](#upgrading)). For manual install or detailed setup, see [docs/quick-start.md](docs/quick-start.md).
 
-## Upgrading from v4
+## Upgrading
 
-See [docs/upgrading.md](docs/upgrading.md) for migration guide and breaking changes.
+v7 changed the wire protocol, so upgrade the server and every client together: a v7 client can't use a v6 server, and a v6 client can't use a v7 server. See [docs/upgrading.md](docs/upgrading.md) for how to upgrade with the install scripts or by hand, and for what changed in each release since v4.
 
 ## Configuration
 

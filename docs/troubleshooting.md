@@ -6,13 +6,13 @@
 
 **Authentication failed** — The `authSecret` must match exactly between client and server configs. The server rejects a client with a different secret: the client prints `server error: authentication failed`, and the server logs `auth failed from <address>`. If the client instead prints `the server accepted the command but did not prove it knows the auth secret`, something other than your ffmpeg-over-ip server answered at the configured address.
 
-**Protocol version mismatch** — The server refuses a client from a different ffmpeg-over-ip release with `protocol version mismatch: client sent 0x.., server expects 0x..`. A client talking to a server from a release before 0x07 gets `server error: expected command message (0x01), got 0x07`. Upgrade the client and server together so both run the same release.
+**Protocol version mismatch** — The server refuses a client from a different ffmpeg-over-ip release with `protocol version mismatch: client sent 0x.., server expects 0x..`. A client talking to a server from a release before 0x07 gets `server error: expected command message (0x01), got 0x07`. Upgrade the client and server together so both run the same release; see [Upgrading](upgrading.md).
 
 **Server busy** — `server error: server busy: too much data from connections that haven't authenticated yet` means connections that hadn't finished the handshake were holding as much unverified data as the server buffers: 64 MiB in all, or 16 MiB from your client's IP address (its /64 for IPv6). The server logs `handshake with <address> failed: ... too much data buffered for unauthenticated connections`. Each such connection is dropped after at most 10 seconds, so retry; if it keeps happening, something on the network is flooding the server's port.
 
-**Codec not found / encoder not available** — The server's ffmpeg may not support the requested codec. Use `rewrites` in the server config to map unsupported codecs to available ones (e.g., `["h264_nvenc", "h264_qsv"]`). See [configuration.md](configuration.md#rewrites).
+**Codec not found / encoder not available** — The server's ffmpeg may not support the requested codec. Use `rewrites` in the server config to map unsupported codecs to available ones (e.g., `["h264_nvenc", "h264_qsv"]`). See [Rewrites](configuration.md#rewrites).
 
-**ffprobe not working** — The client detects ffprobe mode from its binary name. The binary or symlink must contain "ffprobe" in the name. See [configuration.md](configuration.md#ffprobe).
+**ffprobe not working** — The client detects ffprobe mode from its binary name. The binary or symlink must contain "ffprobe" in the name. See [ffprobe](configuration.md#ffprobe).
 
 **Server can't find ffmpeg** — `ffmpeg` and `ffprobe` must be in the same directory as `ffmpeg-over-ip-server`.
 
@@ -26,7 +26,7 @@ xattr -dr com.apple.quarantine ffmpeg ffprobe ffmpeg-over-ip-server
 xattr -dr com.apple.quarantine ffmpeg-over-ip-client
 ```
 
-**Need more detail?** — Enable logging on both sides. Set `"log": "stdout"` and `"debug": true` on the server to see the commands being executed. Set `"log": "/tmp/ffmpeg-over-ip.log"` on the client to capture client-side activity.
+**Need more detail?** — Enable logging on both sides. Set `"log": "stdout"` and `"debug": true` on the server to see the commands being executed. Set `"log": "/tmp/ffmpeg-over-ip.log"` on the client to capture client-side activity. If you use `fallbackToLocal`, also set `"debug": true` on the client to log the original and rewritten arguments when the local fallback runs.
 
 ## Files opened on the server
 

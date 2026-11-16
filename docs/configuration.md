@@ -195,7 +195,7 @@ Each pair `["find", "replace"]` matches whole argv elements — not substrings w
 
 Rewrites are applied in declared order, so a later rewrite can match tokens produced by an earlier one. The same rewrite is applied to every matching run in argv, not just the first.
 
-Enable `"debug": true` to log original and rewritten arguments for each command.
+Enable `"debug": true` on the server to log original and rewritten arguments for each command.
 
 ## Log
 
