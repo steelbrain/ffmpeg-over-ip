@@ -22,3 +22,10 @@ func TestMapErrnoMissingParentIsENOENT(t *testing.T) {
 		t.Fatalf("open under a missing directory: %v -> %d, want ENOENT", err, got)
 	}
 }
+
+// ERROR_DIRECTORY (a file where a directory was expected) is ENOTDIR.
+func TestMapErrnoErrorDirectoryIsENOTDIR(t *testing.T) {
+	if got := mapErrno(syscall.Errno(267)); got != protocol.FioENOTDIR {
+		t.Fatalf("ERROR_DIRECTORY -> %d, want ENOTDIR", got)
+	}
+}

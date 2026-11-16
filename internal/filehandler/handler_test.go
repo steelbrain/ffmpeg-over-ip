@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"syscall"
 	"testing"
@@ -730,7 +731,6 @@ func TestErrnoMapping(t *testing.T) {
 		{syscall.EIO, protocol.FioEIO},
 		{syscall.EACCES, protocol.FioEACCES},
 		{syscall.EEXIST, protocol.FioEEXIST},
-		{syscall.ENOTDIR, protocol.FioENOTDIR},
 		{syscall.EISDIR, protocol.FioEISDIR},
 		{syscall.EINVAL, protocol.FioEINVAL},
 		{syscall.ENOSPC, protocol.FioENOSPC},
@@ -740,6 +740,14 @@ func TestErrnoMapping(t *testing.T) {
 		{&os.PathError{Op: "open", Path: "/x", Err: syscall.ENOENT}, protocol.FioENOENT},
 		// Unknown → EIO fallback
 		{io.ErrUnexpectedEOF, protocol.FioEIO},
+	}
+	// On Windows syscall.ENOTDIR is ERROR_PATH_NOT_FOUND, which maps to
+	// ENOENT (see errno_windows_test.go).
+	if runtime.GOOS != "windows" {
+		tests = append(tests, struct {
+			err      error
+			expected int32
+		}{syscall.ENOTDIR, protocol.FioENOTDIR})
 	}
 	for _, tc := range tests {
 		got := mapErrno(tc.err)
