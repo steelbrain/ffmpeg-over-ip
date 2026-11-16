@@ -1,0 +1,250 @@
+.player {
+  background: var(--term-bg);
+  color: var(--term-fg);
+  border: 1px solid var(--term-line);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.875rem;
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid var(--term-line);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+}
+
+.button {
+  appearance: none;
+  border: 1px solid var(--term-line);
+  background: #232321;
+  color: var(--term-fg);
+  border-radius: 5px;
+  padding: 0.25rem 0.75rem;
+  font: inherit;
+  cursor: pointer;
+  min-width: 11.5rem;
+  text-align: left;
+}
+
+.button:hover {
+  background: #2c2c2a;
+}
+
+.scrubber {
+  flex: 1 1 12rem;
+  min-width: 0;
+  accent-color: var(--term-accent);
+}
+
+.clock {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--term-muted);
+  white-space: nowrap;
+}
+
+.panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 64rem) {
+  .panes {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .panes > .pane + .pane {
+    border-left: 1px solid var(--term-line);
+  }
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-bottom: 1px solid var(--term-line);
+}
+
+.paneHead {
+  padding: 0.5rem 0.875rem;
+  border-bottom: 1px solid var(--term-line);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  color: var(--term-muted);
+}
+
+.paneHead strong {
+  color: var(--term-fg);
+  font-weight: 600;
+  margin-right: 0.5rem;
+}
+
+.screen {
+  margin: 0;
+  padding: 0.75rem 0.875rem;
+  height: 20rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+}
+
+@media (min-width: 64rem) {
+  .screen {
+    height: 23rem;
+  }
+}
+
+.prompt {
+  color: var(--term-muted);
+}
+
+.status {
+  padding: 0.375rem 0.875rem;
+  border-top: 1px solid var(--term-line);
+  font-family: var(--font-sans);
+  color: var(--term-muted);
+  min-height: 2.125rem;
+}
+
+.ok {
+  color: var(--term-accent);
+}
+
+.messagesHead {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  padding: 0.5rem 0.875rem;
+  border-bottom: 1px solid var(--term-line);
+  font-family: var(--font-sans);
+  color: var(--term-muted);
+}
+
+.messagesHead strong {
+  color: var(--term-fg);
+  font-weight: 600;
+  margin-right: 0.5rem;
+}
+
+.list {
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  height: 20rem;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+}
+
+.colnames,
+.row {
+  display: grid;
+  grid-template-columns: 4.25rem 6.5rem minmax(0, 1fr);
+  grid-template-areas:
+    "ms dir type"
+    "detail detail detail"
+    "reply reply reply";
+  column-gap: 0.75rem;
+  padding: 0.25rem 0.875rem;
+}
+
+@media (min-width: 48rem) {
+  .colnames,
+  .row {
+    grid-template-columns: 4.25rem 5.75rem 7.25rem minmax(0, 1fr) 17rem;
+    grid-template-areas: "ms dir type detail reply";
+    padding: 0.125rem 0.875rem;
+  }
+}
+
+.colnames {
+  font-family: var(--font-sans);
+  color: var(--term-muted);
+  border-bottom: 1px solid var(--term-line);
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+}
+
+.colnames .reply,
+.colnames .detail {
+  display: none;
+}
+
+@media (min-width: 48rem) {
+  .colnames .reply,
+  .colnames .detail {
+    display: block;
+  }
+}
+
+.ms {
+  grid-area: ms;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--term-muted);
+}
+
+.dir {
+  grid-area: dir;
+  color: var(--term-muted);
+  white-space: nowrap;
+}
+
+.type {
+  grid-area: type;
+  font-weight: 600;
+}
+
+.detail {
+  grid-area: detail;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 48rem) {
+  .row .detail {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.reply {
+  grid-area: reply;
+  color: var(--term-muted);
+  overflow-wrap: anywhere;
+}
+
+.current {
+  background: #23231f;
+}
+
+.current .type {
+  color: var(--term-accent);
+}
+
+.counters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.25rem 1.5rem;
+  margin: 0;
+  padding: 0.625rem 0.875rem;
+  border-top: 1px solid var(--term-line);
+  font-family: var(--font-sans);
+}
+
+.counters dt {
+  color: var(--term-muted);
+}
+
+.counters dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}

@@ -1,26 +1,25 @@
-import type { Metadata } from "next"
-import { Geist, Geist_Mono } from "next/font/google"
+import type { Metadata, Viewport } from "next"
 import { Footer } from "./components/footer"
 import { Header } from "./components/header"
 import "./globals.css"
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-})
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-})
-
 export const metadata: Metadata = {
-  title: "ffmpeg-over-ip — GPU-accelerated ffmpeg without GPU passthrough",
+  title: {
+    default: "ffmpeg-over-ip",
+    template: "%s · ffmpeg-over-ip",
+  },
   description:
-    "Use GPU-accelerated ffmpeg from anywhere — a Docker container, a VM, or a remote machine — without GPU passthrough or shared filesystems.",
+    "Use the GPU of another machine for ffmpeg. The client replaces the ffmpeg binary, and the server's ffmpeg reads and writes the client's files over one TCP connection.",
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
   },
+}
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#111110" },
+  ],
 }
 
 export default function RootLayout({
@@ -30,7 +29,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body className="antialiased">
         <Header />
         <main>{children}</main>
         <Footer />

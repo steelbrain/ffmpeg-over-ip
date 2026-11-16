@@ -1,0 +1,1365 @@
+{
+  "recordedOn": "2026-11-15",
+  "version": "7.0.0",
+  "command": "ffmpeg -hide_banner -i \"/media/movies/Test Pattern (2026)/Test Pattern (2026).mkv\" -map 0:v:0 -map 0:a:0 -c:v h264_videotoolbox -b:v 6M -c:a aac -b:a 192k -f hls -hls_time 4 -hls_playlist_type vod -hls_segment_filename \"/transcodes/test-pattern/seg%d.ts\" /transcodes/test-pattern/main.m3u8",
+  "duration": 2023.559,
+  "serverLog": [
+    { "t": null, "text": "2026/11/15 22:27:18 listening on 127.0.0.1:5050 (tcp)" },
+    {
+      "t": 1.682,
+      "text": "2026/11/15 22:27:20 running ffmpeg [-hide_banner -i /media/movies/Test Pattern (2026)/Test Pattern (2026).mkv -map 0:v:0 -map 0:a:0 -c:v h264_videotoolbox -b:v 6M -c:a aac -b:a 192k -f hls -hls_time 4 -hls_playlist_type vod -hls_segment_filename /transcodes/test-pattern/seg%d.ts /transcodes/test-pattern/main.m3u8] (from 127.0.0.1:56015)"
+    },
+    { "t": 2023.559, "text": "2026/11/15 22:27:22 process exited with code 0 (from 127.0.0.1:56015)" }
+  ],
+  "events": [
+    { "t": 1.125, "dir": "c2s", "type": "HELLO", "version": 7 },
+    { "t": 1.38, "dir": "s2c", "type": "CHALLENGE" },
+    {
+      "t": 1.455,
+      "dir": "c2s",
+      "type": "COMMAND",
+      "version": 7,
+      "args": [
+        "-hide_banner",
+        "-i",
+        "/media/movies/Test Pattern (2026)/Test Pattern (2026).mkv",
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a:0",
+        "-c:v",
+        "h264_videotoolbox",
+        "-b:v",
+        "6M",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-f",
+        "hls",
+        "-hls_time",
+        "4",
+        "-hls_playlist_type",
+        "vod",
+        "-hls_segment_filename",
+        "/transcodes/test-pattern/seg%d.ts",
+        "/transcodes/test-pattern/main.m3u8"
+      ],
+      "program": 1
+    },
+    { "t": 1.682, "dir": "s2c", "type": "ACCEPTED" },
+    { "t": 1.787, "dir": "c2s", "type": "STDIN_CLOSE" },
+    {
+      "t": 21.489,
+      "dir": "s2c",
+      "type": "OPEN",
+      "path": "/media/movies/Test Pattern (2026)/Test Pattern (2026).mkv",
+      "fid": 1,
+      "flags": 0,
+      "reply": { "mode": 33188, "size": 30694487, "t": 21.714, "type": "OPEN_OK" }
+    },
+    {
+      "t": 22.005,
+      "dir": "s2c",
+      "type": "SEEK",
+      "offset": 0,
+      "whence": 0,
+      "fid": 1,
+      "reply": { "offset": 0, "t": 22.051, "type": "SEEK_OK" }
+    },
+    {
+      "t": 22.343,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 524288,
+      "fid": 1,
+      "reply": { "n": 524288, "t": 22.876, "type": "READ_OK" }
+    },
+    {
+      "t": 33.379,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "Input #0, matroska,webm, from '/media/movies/Test Pattern (2026)/Test Pattern (2026).mkv':\n  Metadata:\n    title           : Test Pattern\n    ENCODER         : Lavf62.12.103\n"
+    },
+    {
+      "t": 33.431,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "  Duration: 00:00:30.02, start: 0.000000, bitrate: 8179 kb/s\n  Stream #0"
+    },
+    {
+      "t": 33.447,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": ":0: Video: h264 (High), yuv420p(tv, progressive), 1920x1080 [SAR 1:1 DAR 16:9], 24 fps, 24 tbr, "
+    },
+    {
+      "t": 33.46,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "1k tbn\n    Metadata:\n      ENCODER         : Lavc62.28.103 libx264"
+    },
+    {
+      "t": 33.48,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "\n      DURATION        : 00:00:30.000000000\n  Stream #0:1: Audio: aac (LC), 48000 Hz, stereo, fltp\n    Metadata:\n      ENCODER         : Lavc62.28.103 aac\n      DURATION        : "
+    },
+    { "t": 33.494, "dir": "s2c", "type": "STDERR", "text": "00:00:30.021000000\n" },
+    {
+      "t": 33.503,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 524288,
+      "fid": 1,
+      "reply": { "n": 524288, "t": 33.984, "type": "READ_OK" }
+    },
+    {
+      "t": 34.033,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "Stream mapping:\n  Stream #0:0 -> #0:0 (h264 (native) -> h264 (h264_videotoolbox))\n  Stream #0:1 -> #0:1 (aac (native) -> aac (native))\n"
+    },
+    { "t": 34.054, "dir": "s2c", "type": "STDERR", "text": "Press [q] to stop, [?] for help\n" },
+    {
+      "t": 193.115,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "Output #0, hls, to '/transcodes/test-pattern/main.m3u8':\n  Metadata:\n    title           : Test Pattern\n    encoder         : Lavf62.12.103\n  Stream #0:0: Video: h264, yuv420p(tv, progressive), 1920x1080 [SAR 1:1 DAR 16:9], q=2-31, 6000 kb/s, 24 fps, 90k tbn\n    Metadata:\n"
+    },
+    {
+      "t": 193.2,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "      encoder         : Lavc62.28.103 h264_videotoolbox\n      DURATION        : 00:00:30.000000000\n  Stream #0:1: Audio: aac (LC), 48000 Hz, stereo, fltp, 192 kb/s\n    Metadata:\n      encoder         : Lavc62.28.103 aac\n      DURATION        : 00:00:30.021000000\n"
+    },
+    {
+      "t": 193.595,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1048576,
+      "fid": 1,
+      "reply": { "n": 1048576, "t": 194.615, "type": "READ_OK" }
+    },
+    {
+      "t": 201.739,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 204.402, "type": "READ_OK" }
+    },
+    {
+      "t": 271.838,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 272.878, "type": "READ_OK" }
+    },
+    {
+      "t": 352.447,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 354.053, "type": "READ_OK" }
+    },
+    {
+      "t": 431.995,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 433.125, "type": "READ_OK" }
+    },
+    {
+      "t": 462.124,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "[hls @ 0x75b4c40280] Opening '/transcodes/test-pattern/seg0.ts' for writing\n"
+    },
+    {
+      "t": 462.2,
+      "dir": "s2c",
+      "type": "OPEN",
+      "path": "/transcodes/test-pattern/seg0.ts",
+      "fid": 2,
+      "flags": 577,
+      "reply": { "mode": 33188, "size": 0, "t": 462.485, "type": "OPEN_OK" }
+    },
+    {
+      "t": 462.949,
+      "dir": "s2c",
+      "type": "SEEK",
+      "offset": 0,
+      "whence": 0,
+      "fid": 2,
+      "reply": { "offset": 0, "t": 463.096, "type": "SEEK_OK" }
+    },
+    {
+      "t": 463.889,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 2,
+      "reply": { "n": 262144, "t": 464.13, "type": "WRITE_OK" }
+    },
+    {
+      "t": 464.725,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 2,
+      "reply": { "n": 262144, "t": 465.282, "type": "WRITE_OK" }
+    },
+    {
+      "t": 465.843,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 2,
+      "reply": { "n": 262144, "t": 466.031, "type": "WRITE_OK" }
+    },
+    {
+      "t": 466.614,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 2,
+      "reply": { "n": 262144, "t": 467.011, "type": "WRITE_OK" }
+    },
+    {
+      "t": 469.017,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 2,
+      "reply": { "n": 262144, "t": 469.241, "type": "WRITE_OK" }
+    },
+    {
+      "t": 469.762,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 2,
+      "reply": { "n": 262144, "t": 469.936, "type": "WRITE_OK" }
+    },
+    {
+      "t": 470.497,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 2,
+      "reply": { "n": 262144, "t": 470.673, "type": "WRITE_OK" }
+    },
+    {
+      "t": 471.247,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 2,
+      "reply": { "n": 262144, "t": 471.415, "type": "WRITE_OK" }
+    },
+    {
+      "t": 471.961,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 2,
+      "reply": { "n": 262144, "t": 472.183, "type": "WRITE_OK" }
+    },
+    {
+      "t": 472.857,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 2,
+      "reply": { "n": 262144, "t": 473.115, "type": "WRITE_OK" }
+    },
+    {
+      "t": 473.645,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 2,
+      "reply": { "n": 262144, "t": 473.809, "type": "WRITE_OK" }
+    },
+    {
+      "t": 474.301,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 244360,
+      "fid": 2,
+      "reply": { "n": 244360, "t": 474.465, "type": "WRITE_OK" }
+    },
+    { "t": 474.746, "dir": "s2c", "type": "CLOSE", "fid": 2, "reply": { "t": 474.968, "type": "CLOSE_OK" } },
+    {
+      "t": 501.137,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 502.278, "type": "READ_OK" }
+    },
+    {
+      "t": 543.671,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "frame=  129 fps=0.0 q=-0.0 size=N/A time=00:00:05.33 bitrate=N/A speed=10.5x elapsed=0:00:00.50    \r"
+    },
+    {
+      "t": 576.617,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 577.929, "type": "READ_OK" }
+    },
+    {
+      "t": 650.423,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 651.556, "type": "READ_OK" }
+    },
+    {
+      "t": 700.86,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "[hls @ 0x75b4c40280] Opening '/transcodes/test-pattern/seg1.ts' for writing\n"
+    },
+    {
+      "t": 700.96,
+      "dir": "s2c",
+      "type": "OPEN",
+      "path": "/transcodes/test-pattern/seg1.ts",
+      "fid": 3,
+      "flags": 577,
+      "reply": { "mode": 33188, "size": 0, "t": 701.262, "type": "OPEN_OK" }
+    },
+    {
+      "t": 701.566,
+      "dir": "s2c",
+      "type": "SEEK",
+      "offset": 0,
+      "whence": 0,
+      "fid": 3,
+      "reply": { "offset": 0, "t": 701.615, "type": "SEEK_OK" }
+    },
+    {
+      "t": 702.173,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 3,
+      "reply": { "n": 262144, "t": 702.391, "type": "WRITE_OK" }
+    },
+    {
+      "t": 702.941,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 3,
+      "reply": { "n": 262144, "t": 703.178, "type": "WRITE_OK" }
+    },
+    {
+      "t": 703.741,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 3,
+      "reply": { "n": 262144, "t": 703.929, "type": "WRITE_OK" }
+    },
+    {
+      "t": 704.819,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 3,
+      "reply": { "n": 262144, "t": 705.073, "type": "WRITE_OK" }
+    },
+    {
+      "t": 705.504,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 3,
+      "reply": { "n": 262144, "t": 705.713, "type": "WRITE_OK" }
+    },
+    {
+      "t": 706.159,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 3,
+      "reply": { "n": 262144, "t": 708.959, "type": "WRITE_OK" }
+    },
+    {
+      "t": 709.489,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 3,
+      "reply": { "n": 262144, "t": 709.675, "type": "WRITE_OK" }
+    },
+    {
+      "t": 710.178,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 3,
+      "reply": { "n": 262144, "t": 710.339, "type": "WRITE_OK" }
+    },
+    {
+      "t": 710.827,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 3,
+      "reply": { "n": 262144, "t": 710.997, "type": "WRITE_OK" }
+    },
+    {
+      "t": 711.653,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 3,
+      "reply": { "n": 262144, "t": 711.813, "type": "WRITE_OK" }
+    },
+    {
+      "t": 712.306,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 3,
+      "reply": { "n": 262144, "t": 712.465, "type": "WRITE_OK" }
+    },
+    {
+      "t": 713.005,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 3,
+      "reply": { "n": 262144, "t": 713.167, "type": "WRITE_OK" }
+    },
+    {
+      "t": 713.506,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 73584,
+      "fid": 3,
+      "reply": { "n": 73584, "t": 713.615, "type": "WRITE_OK" }
+    },
+    { "t": 713.857, "dir": "s2c", "type": "CLOSE", "fid": 3, "reply": { "t": 714.071, "type": "CLOSE_OK" } },
+    {
+      "t": 735.569,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 736.775, "type": "READ_OK" }
+    },
+    {
+      "t": 814.605,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 815.648, "type": "READ_OK" }
+    },
+    {
+      "t": 899.212,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 900.322, "type": "READ_OK" }
+    },
+    {
+      "t": 939.718,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "[hls @ 0x75b4c40280] Opening '/transcodes/test-pattern/seg2.ts' for writing\n"
+    },
+    {
+      "t": 939.826,
+      "dir": "s2c",
+      "type": "OPEN",
+      "path": "/transcodes/test-pattern/seg2.ts",
+      "fid": 4,
+      "flags": 577,
+      "reply": { "mode": 33188, "size": 0, "t": 940.122, "type": "OPEN_OK" }
+    },
+    {
+      "t": 940.407,
+      "dir": "s2c",
+      "type": "SEEK",
+      "offset": 0,
+      "whence": 0,
+      "fid": 4,
+      "reply": { "offset": 0, "t": 940.453, "type": "SEEK_OK" }
+    },
+    {
+      "t": 940.955,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 4,
+      "reply": { "n": 262144, "t": 941.179, "type": "WRITE_OK" }
+    },
+    {
+      "t": 941.661,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 4,
+      "reply": { "n": 262144, "t": 942.065, "type": "WRITE_OK" }
+    },
+    {
+      "t": 942.561,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 4,
+      "reply": { "n": 262144, "t": 942.739, "type": "WRITE_OK" }
+    },
+    {
+      "t": 943.134,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 4,
+      "reply": { "n": 262144, "t": 943.325, "type": "WRITE_OK" }
+    },
+    {
+      "t": 943.776,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 4,
+      "reply": { "n": 262144, "t": 943.96, "type": "WRITE_OK" }
+    },
+    {
+      "t": 944.422,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 4,
+      "reply": { "n": 262144, "t": 944.625, "type": "WRITE_OK" }
+    },
+    {
+      "t": 945.066,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 4,
+      "reply": { "n": 262144, "t": 945.269, "type": "WRITE_OK" }
+    },
+    {
+      "t": 945.713,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 4,
+      "reply": { "n": 262144, "t": 945.888, "type": "WRITE_OK" }
+    },
+    {
+      "t": 946.351,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 4,
+      "reply": { "n": 262144, "t": 946.577, "type": "WRITE_OK" }
+    },
+    {
+      "t": 947.106,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 4,
+      "reply": { "n": 262144, "t": 947.395, "type": "WRITE_OK" }
+    },
+    {
+      "t": 947.762,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 4,
+      "reply": { "n": 262144, "t": 947.917, "type": "WRITE_OK" }
+    },
+    {
+      "t": 948.292,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 4,
+      "reply": { "n": 262144, "t": 948.451, "type": "WRITE_OK" }
+    },
+    {
+      "t": 948.683,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 2332,
+      "fid": 4,
+      "reply": { "n": 2332, "t": 948.723, "type": "WRITE_OK" }
+    },
+    { "t": 948.923, "dir": "s2c", "type": "CLOSE", "fid": 4, "reply": { "t": 949.07, "type": "CLOSE_OK" } },
+    {
+      "t": 969.732,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 970.963, "type": "READ_OK" }
+    },
+    {
+      "t": 1047.867,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "frame=  331 fps=326 q=-0.0 size=N/A time=00:00:13.75 bitrate=N/A speed=13.6x elapsed=0:00:01.01    \r"
+    },
+    {
+      "t": 1048.03,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 1049.385, "type": "READ_OK" }
+    },
+    {
+      "t": 1118.539,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 1119.576, "type": "READ_OK" }
+    },
+    {
+      "t": 1178.061,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "[hls @ 0x75b4c40280] Opening '/transcodes/test-pattern/seg3.ts' for writing\n"
+    },
+    {
+      "t": 1178.216,
+      "dir": "s2c",
+      "type": "OPEN",
+      "path": "/transcodes/test-pattern/seg3.ts",
+      "fid": 5,
+      "flags": 577,
+      "reply": { "mode": 33188, "size": 0, "t": 1178.431, "type": "OPEN_OK" }
+    },
+    {
+      "t": 1178.669,
+      "dir": "s2c",
+      "type": "SEEK",
+      "offset": 0,
+      "whence": 0,
+      "fid": 5,
+      "reply": { "offset": 0, "t": 1178.719, "type": "SEEK_OK" }
+    },
+    {
+      "t": 1179.164,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 5,
+      "reply": { "n": 262144, "t": 1179.389, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1179.859,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 5,
+      "reply": { "n": 262144, "t": 1180.039, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1180.619,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 5,
+      "reply": { "n": 262144, "t": 1180.791, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1181.42,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 5,
+      "reply": { "n": 262144, "t": 1181.622, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1182.047,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 5,
+      "reply": { "n": 262144, "t": 1182.228, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1182.896,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 5,
+      "reply": { "n": 262144, "t": 1183.258, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1183.631,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 5,
+      "reply": { "n": 262144, "t": 1183.811, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1184.194,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 5,
+      "reply": { "n": 262144, "t": 1184.372, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1184.738,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 5,
+      "reply": { "n": 262144, "t": 1184.958, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1185.431,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 5,
+      "reply": { "n": 262144, "t": 1185.603, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1185.949,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 5,
+      "reply": { "n": 262144, "t": 1186.14, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1186.482,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 5,
+      "reply": { "n": 262144, "t": 1186.642, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1186.898,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 79976,
+      "fid": 5,
+      "reply": { "n": 79976, "t": 1186.978, "type": "WRITE_OK" }
+    },
+    { "t": 1187.167, "dir": "s2c", "type": "CLOSE", "fid": 5, "reply": { "t": 1187.322, "type": "CLOSE_OK" } },
+    {
+      "t": 1197.13,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 1198.29, "type": "READ_OK" }
+    },
+    {
+      "t": 1272.502,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 1273.506, "type": "READ_OK" }
+    },
+    {
+      "t": 1346.587,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 1347.78, "type": "READ_OK" }
+    },
+    {
+      "t": 1416.069,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "[hls @ 0x75b4c40280] Opening '/transcodes/test-pattern/seg4.ts' for writing\n"
+    },
+    {
+      "t": 1416.134,
+      "dir": "s2c",
+      "type": "OPEN",
+      "path": "/transcodes/test-pattern/seg4.ts",
+      "fid": 6,
+      "flags": 577,
+      "reply": { "mode": 33188, "size": 0, "t": 1416.965, "type": "OPEN_OK" }
+    },
+    {
+      "t": 1416.167,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 1417.486, "type": "READ_OK" }
+    },
+    {
+      "t": 1417.302,
+      "dir": "s2c",
+      "type": "SEEK",
+      "offset": 0,
+      "whence": 0,
+      "fid": 6,
+      "reply": { "offset": 0, "t": 1417.685, "type": "SEEK_OK" }
+    },
+    {
+      "t": 1418.898,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 6,
+      "reply": { "n": 262144, "t": 1419.108, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1419.51,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 6,
+      "reply": { "n": 262144, "t": 1419.879, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1422.056,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 6,
+      "reply": { "n": 262144, "t": 1430.673, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1431.197,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 6,
+      "reply": { "n": 262144, "t": 1431.417, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1431.864,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 6,
+      "reply": { "n": 262144, "t": 1432.066, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1432.472,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 6,
+      "reply": { "n": 262144, "t": 1432.676, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1433.085,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 6,
+      "reply": { "n": 262144, "t": 1433.251, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1433.654,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 6,
+      "reply": { "n": 262144, "t": 1433.835, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1434.217,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 6,
+      "reply": { "n": 262144, "t": 1434.415, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1434.966,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 6,
+      "reply": { "n": 262144, "t": 1435.199, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1435.627,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 6,
+      "reply": { "n": 262144, "t": 1435.829, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1436.217,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 6,
+      "reply": { "n": 262144, "t": 1436.405, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1436.664,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 72080,
+      "fid": 6,
+      "reply": { "n": 72080, "t": 1436.777, "type": "WRITE_OK" }
+    },
+    { "t": 1436.985, "dir": "s2c", "type": "CLOSE", "fid": 6, "reply": { "t": 1437.233, "type": "CLOSE_OK" } },
+    {
+      "t": 1485.655,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 1487.099, "type": "READ_OK" }
+    },
+    {
+      "t": 1557.966,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "frame=  537 fps=352 q=-0.0 size=N/A time=00:00:22.33 bitrate=N/A speed=14.7x elapsed=0:00:01.52    \r"
+    },
+    {
+      "t": 1565.049,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 1566.124, "type": "READ_OK" }
+    },
+    {
+      "t": 1655.041,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "[hls @ 0x75b4c40280] Opening '/transcodes/test-pattern/seg5.ts' for writing\n"
+    },
+    {
+      "t": 1655.13,
+      "dir": "s2c",
+      "type": "OPEN",
+      "path": "/transcodes/test-pattern/seg5.ts",
+      "fid": 7,
+      "flags": 577,
+      "reply": { "mode": 33188, "size": 0, "t": 1655.441, "type": "OPEN_OK" }
+    },
+    {
+      "t": 1655.787,
+      "dir": "s2c",
+      "type": "SEEK",
+      "offset": 0,
+      "whence": 0,
+      "fid": 7,
+      "reply": { "offset": 0, "t": 1655.815, "type": "SEEK_OK" }
+    },
+    {
+      "t": 1656.361,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 7,
+      "reply": { "n": 262144, "t": 1656.563, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1657.142,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 7,
+      "reply": { "n": 262144, "t": 1657.323, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1657.788,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 7,
+      "reply": { "n": 262144, "t": 1657.979, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1658.369,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 7,
+      "reply": { "n": 262144, "t": 1658.629, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1659.092,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 7,
+      "reply": { "n": 262144, "t": 1659.308, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1659.363,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 1660.583, "type": "READ_OK" }
+    },
+    {
+      "t": 1659.75,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 7,
+      "reply": { "n": 262144, "t": 1660.719, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1662.027,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 7,
+      "reply": { "n": 262144, "t": 1662.246, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1662.691,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 7,
+      "reply": { "n": 262144, "t": 1662.853, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1663.278,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 7,
+      "reply": { "n": 262144, "t": 1663.419, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1664.004,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 7,
+      "reply": { "n": 262144, "t": 1664.154, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1664.552,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 7,
+      "reply": { "n": 262144, "t": 1664.713, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1665.205,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 260904,
+      "fid": 7,
+      "reply": { "n": 260904, "t": 1665.355, "type": "WRITE_OK" }
+    },
+    { "t": 1665.52, "dir": "s2c", "type": "CLOSE", "fid": 7, "reply": { "t": 1665.697, "type": "CLOSE_OK" } },
+    {
+      "t": 1733.228,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 1310720, "t": 1734.226, "type": "READ_OK" }
+    },
+    {
+      "t": 1812.46,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1072215,
+      "fid": 1,
+      "reply": { "n": 1072215, "t": 1813.307, "type": "READ_OK" }
+    },
+    {
+      "t": 1892.914,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "[hls @ 0x75b4c40280] Opening '/transcodes/test-pattern/seg6.ts' for writing\n"
+    },
+    {
+      "t": 1892.985,
+      "dir": "s2c",
+      "type": "OPEN",
+      "path": "/transcodes/test-pattern/seg6.ts",
+      "fid": 8,
+      "flags": 577,
+      "reply": { "mode": 33188, "size": 0, "t": 1893.226, "type": "OPEN_OK" }
+    },
+    {
+      "t": 1893.444,
+      "dir": "s2c",
+      "type": "SEEK",
+      "offset": 0,
+      "whence": 0,
+      "fid": 8,
+      "reply": { "offset": 0, "t": 1893.473, "type": "SEEK_OK" }
+    },
+    {
+      "t": 1893.926,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 8,
+      "reply": { "n": 262144, "t": 1894.12, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1894.646,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 8,
+      "reply": { "n": 262144, "t": 1895.118, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1895.543,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 8,
+      "reply": { "n": 262144, "t": 1895.729, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1896.195,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 8,
+      "reply": { "n": 262144, "t": 1896.415, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1896.802,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 8,
+      "reply": { "n": 262144, "t": 1897.009, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1897.447,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 8,
+      "reply": { "n": 262144, "t": 1897.659, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1898.168,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 8,
+      "reply": { "n": 262144, "t": 1898.347, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1898.744,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 8,
+      "reply": { "n": 262144, "t": 1898.944, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1899.325,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 8,
+      "reply": { "n": 262144, "t": 1899.522, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1899.973,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 8,
+      "reply": { "n": 262144, "t": 1900.26, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1900.666,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 8,
+      "reply": { "n": 262144, "t": 1900.818, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1901.23,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 8,
+      "reply": { "n": 262144, "t": 1901.414, "type": "WRITE_OK" }
+    },
+    {
+      "t": 1901.656,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 77344,
+      "fid": 8,
+      "reply": { "n": 77344, "t": 1901.729, "type": "WRITE_OK" }
+    },
+    { "t": 1901.948, "dir": "s2c", "type": "CLOSE", "fid": 8, "reply": { "t": 1902.12, "type": "CLOSE_OK" } },
+    {
+      "t": 1912.355,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 0, "t": 1912.452, "type": "READ_OK" }
+    },
+    {
+      "t": 1912.76,
+      "dir": "s2c",
+      "type": "READ",
+      "n": 1310720,
+      "fid": 1,
+      "reply": { "n": 0, "t": 1912.82, "type": "READ_OK" }
+    },
+    {
+      "t": 2010.869,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "[hls @ 0x75b4c40280] Opening '/transcodes/test-pattern/seg7.ts' for writing\n"
+    },
+    {
+      "t": 2010.936,
+      "dir": "s2c",
+      "type": "OPEN",
+      "path": "/transcodes/test-pattern/seg7.ts",
+      "fid": 9,
+      "flags": 577,
+      "reply": { "mode": 33188, "size": 0, "t": 2011.187, "type": "OPEN_OK" }
+    },
+    {
+      "t": 2011.36,
+      "dir": "s2c",
+      "type": "SEEK",
+      "offset": 0,
+      "whence": 0,
+      "fid": 9,
+      "reply": { "offset": 0, "t": 2011.385, "type": "SEEK_OK" }
+    },
+    {
+      "t": 2011.838,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 9,
+      "reply": { "n": 262144, "t": 2012.094, "type": "WRITE_OK" }
+    },
+    {
+      "t": 2012.521,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 9,
+      "reply": { "n": 262144, "t": 2012.7, "type": "WRITE_OK" }
+    },
+    {
+      "t": 2013.106,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 9,
+      "reply": { "n": 262144, "t": 2013.276, "type": "WRITE_OK" }
+    },
+    {
+      "t": 2013.686,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 9,
+      "reply": { "n": 262144, "t": 2013.885, "type": "WRITE_OK" }
+    },
+    {
+      "t": 2014.291,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 9,
+      "reply": { "n": 262144, "t": 2014.512, "type": "WRITE_OK" }
+    },
+    {
+      "t": 2014.937,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 262144,
+      "fid": 9,
+      "reply": { "n": 262144, "t": 2016.504, "type": "WRITE_OK" }
+    },
+    {
+      "t": 2016.779,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 30588,
+      "fid": 9,
+      "reply": { "n": 30588, "t": 2016.854, "type": "WRITE_OK" }
+    },
+    { "t": 2017.062, "dir": "s2c", "type": "CLOSE", "fid": 9, "reply": { "t": 2017.237, "type": "CLOSE_OK" } },
+    {
+      "t": 2017.433,
+      "dir": "s2c",
+      "type": "OPEN",
+      "path": "/transcodes/test-pattern/main.m3u8",
+      "fid": 10,
+      "flags": 577,
+      "reply": { "mode": 33188, "size": 0, "t": 2017.608, "type": "OPEN_OK" }
+    },
+    {
+      "t": 2017.771,
+      "dir": "s2c",
+      "type": "SEEK",
+      "offset": 0,
+      "whence": 0,
+      "fid": 10,
+      "reply": { "offset": 0, "t": 2017.799, "type": "SEEK_OK" }
+    },
+    {
+      "t": 2018.014,
+      "dir": "s2c",
+      "type": "WRITE",
+      "n": 321,
+      "fid": 10,
+      "reply": { "n": 321, "t": 2018.058, "type": "WRITE_OK" }
+    },
+    { "t": 2018.249, "dir": "s2c", "type": "CLOSE", "fid": 10, "reply": { "t": 2018.348, "type": "CLOSE_OK" } },
+    {
+      "t": 2018.538,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "[out#0/hls @ 0x75b4c08840] video:21985KiB audio:704KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown\n"
+    },
+    {
+      "t": 2018.564,
+      "dir": "s2c",
+      "type": "STDERR",
+      "text": "frame=  720 fps=363 q=-0.0 Lsize=N/A time=00:00:29.95 bitrate=N/A speed=15.1x elapsed=0:00:01.98    \n"
+    },
+    { "t": 2019.897, "dir": "s2c", "type": "STDERR", "text": "[aac @ 0x75b4d94700] Qavg: 780.367\n" },
+    { "t": 2019.934, "dir": "s2c", "type": "CLOSE", "fid": 1, "reply": { "t": 2019.995, "type": "CLOSE_OK" } },
+    { "t": 2023.559, "dir": "s2c", "type": "EXIT_CODE", "code": 0 }
+  ]
+}

@@ -7,12 +7,14 @@ export function generateStaticParams() {
   return docs.map((doc) => ({ slug: doc.slug }))
 }
 
+export const dynamicParams = false
+
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params
   const doc = getDoc(slug)
   if (!doc) return {}
   return {
-    title: `${doc.title} — ffmpeg-over-ip`,
+    title: doc.title,
     description: doc.description,
   }
 }
@@ -23,11 +25,11 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
   if (!doc) notFound()
 
   return (
-    <div>
-      <h1 className="text-3xl font-bold">{doc.title}</h1>
-      <div className="mt-8">
+    <>
+      <h1 className="text-[2rem] font-semibold leading-tight tracking-tight">{doc.title}</h1>
+      <div className="mt-6">
         <Markdown content={doc.content} />
       </div>
-    </div>
+    </>
   )
 }

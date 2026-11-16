@@ -2,75 +2,67 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useState } from "react"
-import type { DocPage } from "./content"
+import { useEffect, useRef } from "react"
 
-function useLinkClass() {
-  const pathname = usePathname()
-  return (slug: string) =>
-    `block rounded-lg px-3 py-2 text-sm transition-colors ${
-      pathname === `/docs/${slug}` ? "bg-white/10 text-white" : "text-gray-400 hover:bg-white/5 hover:text-white"
-    }`
+export interface NavItem {
+  slug: string
+  title: string
 }
 
-export function MobileNav({ docs }: { docs: DocPage[] }) {
-  const [open, setOpen] = useState(false)
-  const linkClass = useLinkClass()
-
+function Links({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void }) {
+  const pathname = usePathname()
   return (
-    <div className="mb-6 md:hidden">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors"
-      >
-        <svg
-          className="h-4 w-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          strokeWidth={2}
-          stroke="currentColor"
-          aria-hidden="true"
-        >
-          {open ? (
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          ) : (
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-          )}
-        </svg>
-        Documentation
-      </button>
-      {open && (
-        <div className="mt-2 space-y-1 rounded-lg border border-white/10 bg-white/5 p-2">
-          {docs.map((doc) => (
+    <ul className="space-y-0.5">
+      {items.map((item) => {
+        const active = pathname === `/docs/${item.slug}`
+        return (
+          <li key={item.slug}>
             <Link
-              key={doc.slug}
-              href={`/docs/${doc.slug}`}
-              onClick={() => setOpen(false)}
-              className={linkClass(doc.slug)}
+              href={`/docs/${item.slug}`}
+              onClick={onNavigate}
+              aria-current={active ? "page" : undefined}
+              className={`-ml-3 block border-l-2 py-1 pl-3 no-underline ${
+                active ? "border-accent font-medium text-fg" : "border-transparent text-muted hover:text-fg"
+              }`}
             >
-              {doc.title}
+              {item.title}
             </Link>
-          ))}
-        </div>
-      )}
-    </div>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
-export function DesktopNav({ docs }: { docs: DocPage[] }) {
-  const linkClass = useLinkClass()
-
+export function DesktopNav({ items }: { items: NavItem[] }) {
   return (
-    <nav className="hidden w-56 shrink-0 md:block">
-      <div className="sticky top-24 space-y-1">
-        <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Documentation</div>
-        {docs.map((doc) => (
-          <Link key={doc.slug} href={`/docs/${doc.slug}`} className={linkClass(doc.slug)}>
-            {doc.title}
-          </Link>
-        ))}
+    <nav aria-label="Documentation" className="hidden w-48 shrink-0 md:block">
+      <div className="sticky top-6 pl-3">
+        <Links items={items} />
       </div>
     </nav>
+  )
+}
+
+export function MobileNav({ items }: { items: NavItem[] }) {
+  const pathname = usePathname()
+  const ref = useRef<HTMLDetailsElement>(null)
+  const current = items.find((i) => pathname === `/docs/${i.slug}`)
+
+  // Close the menu after navigating to another page.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run on every path change
+  useEffect(() => {
+    if (ref.current) ref.current.open = false
+  }, [pathname])
+
+  return (
+    <details ref={ref} className="mb-8 rounded-md border border-line md:hidden">
+      <summary className="cursor-pointer px-3 py-2 text-sm">
+        <span className="text-muted">Documentation:</span> {current?.title ?? "Pages"}
+      </summary>
+      <nav aria-label="Documentation" className="border-t border-line px-3 py-2 pl-6">
+        <Links items={items} />
+      </nav>
+    </details>
   )
 }

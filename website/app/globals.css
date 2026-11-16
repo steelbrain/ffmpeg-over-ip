@@ -1,24 +1,226 @@
 @import "tailwindcss";
-@plugin "@tailwindcss/typography";
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --bg: #ffffff;
+  --fg: #1b1b1a;
+  --muted: #5e5e5a;
+  --line: #e3e3df;
+  --panel: #f5f5f2;
+  --accent: #0b7339;
+  --accent-fg: #ffffff;
+  --term-bg: #141413;
+  --term-fg: #e6e6e1;
+  --term-muted: #9a9a93;
+  --term-line: #2c2c2a;
+  --term-accent: #6fd39b;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111110;
+    --fg: #e9e9e4;
+    --muted: #a5a59f;
+    --line: #2b2b29;
+    --panel: #1a1a19;
+    --accent: #6fd39b;
+    --accent-fg: #0b1f13;
+    --term-bg: #0a0a0a;
+    --term-fg: #e6e6e1;
+    --term-muted: #9a9a93;
+    --term-line: #2b2b29;
+    --term-accent: #6fd39b;
+    color-scheme: dark;
+  }
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-panel: var(--panel);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-term-bg: var(--term-bg);
+  --color-term-fg: var(--term-fg);
+  --color-term-muted: var(--term-muted);
+  --color-term-line: var(--term-line);
+  --color-term-accent: var(--term-accent);
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+
+  a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+    text-decoration-thickness: 1px;
+  }
+
+  a:hover {
+    text-decoration-thickness: 2px;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+  }
+}
+
+@layer components {
+  /* Inline code in running text */
+  .prose-code,
+  .doc :not(pre) > code {
+    font-size: 0.875em;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.05em 0.3em;
+    overflow-wrap: anywhere;
+  }
+
+  /* Documentation pages (rendered Markdown) */
+  .doc {
+    max-width: 46rem;
+  }
+
+  .doc > :first-child {
+    margin-top: 0;
+  }
+
+  .doc h2 {
+    font-size: 1.375rem;
+    line-height: 1.3;
+    font-weight: 600;
+    margin: 2.75rem 0 0.75rem;
+  }
+
+  .doc h3 {
+    font-size: 1.125rem;
+    line-height: 1.35;
+    font-weight: 600;
+    margin: 2rem 0 0.5rem;
+  }
+
+  .doc p,
+  .doc ul,
+  .doc ol,
+  .doc blockquote,
+  .doc .table-scroll,
+  .doc .code-block {
+    margin: 0 0 1rem;
+  }
+
+  .doc ul {
+    list-style: disc;
+    padding-left: 1.25rem;
+  }
+
+  .doc ol {
+    list-style: decimal;
+    padding-left: 1.5rem;
+  }
+
+  .doc li {
+    margin: 0.25rem 0;
+  }
+
+  .doc li > p {
+    margin: 0.25rem 0;
+  }
+
+  .doc blockquote {
+    border-left: 3px solid var(--line);
+    padding-left: 1rem;
+    color: var(--muted);
+  }
+
+  .doc strong {
+    font-weight: 600;
+  }
+
+  .doc hr {
+    border: 0;
+    border-top: 1px solid var(--line);
+    margin: 2rem 0;
+  }
+
+  .doc pre {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0.875rem 1rem;
+    overflow-x: auto;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+  }
+
+  .doc pre code {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+  }
+
+  .doc .table-scroll {
+    overflow-x: auto;
+  }
+
+  .doc table {
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    min-width: 100%;
+  }
+
+  .doc th,
+  .doc td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.5rem 0.75rem 0.5rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .doc th {
+    font-weight: 600;
+  }
+
+  .doc td code {
+    white-space: nowrap;
+  }
 }
 
 [id] {
-  scroll-margin-top: 5rem;
+  scroll-margin-top: 1.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+    animation: none !important;
+  }
 }

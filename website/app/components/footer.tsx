@@ -1,46 +1,19 @@
-const GITHUB_URL = "https://github.com/steelbrain/ffmpeg-over-ip"
-const RELEASE_URL = "https://github.com/steelbrain/ffmpeg-over-ip/releases/latest"
+import { CHANGELOG_URL, GITHUB_URL, LICENSE_URL, RELEASES_URL } from "./links"
 
 export function Footer() {
   return (
-    <footer className="border-t border-white/10 bg-[#0a0a0a]">
-      <div className="mx-auto max-w-6xl px-6 py-12">
-        <div className="flex flex-col items-center gap-6 sm:flex-row sm:justify-between">
-          <div className="text-sm text-gray-400">
-            <p>
-              Made by{" "}
-              <a href="https://aneesiqbal.ai/" className="text-blue-400 hover:text-blue-300 underline">
-                Anees Iqbal
-              </a>
-            </p>
-          </div>
-          <div className="flex gap-6 text-sm text-gray-400">
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-white transition-colors"
-            >
-              GitHub
-            </a>
-            <a
-              href={RELEASE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-white transition-colors"
-            >
-              Releases
-            </a>
-            <a
-              href={`${GITHUB_URL}/blob/main/LICENSE.md`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-white transition-colors"
-            >
-              License
-            </a>
-          </div>
-        </div>
+    <footer className="mt-24 border-t border-line">
+      <div className="mx-auto max-w-6xl px-4 py-8 text-sm text-muted sm:px-6">
+        <p className="max-w-2xl">
+          ffmpeg-over-ip is MIT licensed, except the fio layer and the ffmpeg patches, which are GPL v3 because they are
+          derived from ffmpeg. See <a href={LICENSE_URL}>LICENSE.md</a>. Made by{" "}
+          <a href="https://aneesiqbal.ai/">Anees Iqbal</a>.
+        </p>
+        <p className="mt-3 flex flex-wrap gap-x-5 gap-y-1">
+          <a href={GITHUB_URL}>Source on GitHub</a>
+          <a href={RELEASES_URL}>Releases</a>
+          <a href={CHANGELOG_URL}>Changelog</a>
+        </p>
       </div>
     </footer>
   )
